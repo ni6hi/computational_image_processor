@@ -111,6 +111,12 @@
                         <li class="tree-leaf">Haar Wavelet <button onclick="addOp('haar_wavelet')">+</button></li>
                     </ul>
                 </li>
+                <li>
+                    <div class="tree-node" onclick="toggleTree(this)">▶ Simulators</div>
+                    <ul style="display: none;">
+                        <li class="tree-leaf">SPC Simulator<button onclick="addOp('spc&scaling=' + prompt('Scaling Factor:', '1000') + '&frames=' + prompt('Total Frames:', '50'))">+</button></li>
+                    </ul>
+                </li>
             </ul>
         </div>
     </div>

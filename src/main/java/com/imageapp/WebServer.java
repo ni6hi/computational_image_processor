@@ -11,8 +11,8 @@ import java.util.List;
 import javax.imageio.ImageIO;
 
 import io.javalin.Javalin;
-import io.javalin.json.JavalinJackson;
 import io.javalin.http.Context;
+import io.javalin.json.JavalinJackson;
 
 public class WebServer {
     private static BufferedImage currentSourceImage;
@@ -155,7 +155,11 @@ public class WebServer {
                     pipeline.addOperation(new VignettingCorrectionOperation(alpha));
                 }
                 case "haar_wavelet" -> pipeline.addOperation(new HaarWaveletTransformOperation());
-
+                case "spc" -> {
+                    double scaling = Double.parseDouble(ctx.queryParam("scaling") != null ? ctx.queryParam("scaling") : "1000");
+                    int frames = Integer.parseInt(ctx.queryParam("frames") != null ? ctx.queryParam("frames") : "50");
+                    pipeline.addOperation(new SpcSimulatorOperation(scaling, frames));
+                    break;}
                 default -> {
                     ctx.status(400).result("Unknown operation: " + op);
                     return;
