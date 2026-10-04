@@ -14,6 +14,19 @@ import java.util.Arrays;
 public interface ImageOperation {
     BufferedImage process(BufferedImage input);
     String getName();
+
+    static BufferedImage copyImage(BufferedImage input) {
+        if (input == null) return null;
+        BufferedImage copy = new BufferedImage(
+            input.getWidth(),
+            input.getHeight(),
+            input.getType() == 0 ? BufferedImage.TYPE_INT_ARGB : input.getType()
+        );
+        Graphics2D g2d = copy.createGraphics();
+        g2d.drawImage(input, 0, 0, null);
+        g2d.dispose();
+        return copy;
+    }
 }
 
 // ==========================================
@@ -102,7 +115,11 @@ class CropOperation implements ImageOperation {
         int safeY = Math.max(0, Math.min(y, input.getHeight() - 1));
         int safeW = Math.min(width, input.getWidth() - safeX);
         int safeH = Math.min(height, input.getHeight() - safeY);
-        return input.getSubimage(safeX, safeY, safeW, safeH);
+        BufferedImage cropped = new BufferedImage(safeW, safeH, input.getType() == 0 ? BufferedImage.TYPE_INT_ARGB : input.getType());
+        Graphics2D g2d = cropped.createGraphics();
+        g2d.drawImage(input, 0, 0, safeW, safeH, safeX, safeY, safeX + safeW, safeY + safeH, null);
+        g2d.dispose();
+        return cropped;
     }
     @Override public String getName() { return "Crop (" + width + "x" + height + ")"; }
 }

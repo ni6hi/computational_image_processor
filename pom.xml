@@ -52,6 +52,11 @@
         <version>5.10.2</version>
         <scope>test</scope>
     </dependency>
+    <dependency>
+        <groupId>org.bytedeco</groupId>
+        <artifactId>javacv-platform</artifactId>
+        <version>1.5.10</version>
+    </dependency>
     </dependencies>
     <licenses>
         <license>

@@ -5,187 +5,205 @@ import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import javax.imageio.ImageIO;
 
+import org.bytedeco.javacv.FFmpegFrameGrabber;
+import org.bytedeco.javacv.Java2DFrameConverter;
+
 import io.javalin.Javalin;
 import io.javalin.http.Context;
-import io.javalin.json.JavalinJackson;
+import io.javalin.http.staticfiles.Location;
 
 public class WebServer {
+
     private static BufferedImage currentSourceImage;
+    private static File currentVideoFile;
     private static final ImagePipeline pipeline = new ImagePipeline();
+    private static final VideoProcessorService videoService = new VideoProcessorService();
 
     public static void start(int port) {
         initDefaultCanvas();
 
         Javalin app = Javalin.create(config -> {
-            config.staticFiles.add("/public");
-            config.jsonMapper(new JavalinJackson());
-            config.http.maxRequestSize = 50L * 1024L * 1024L; // 50 MB
-            config.jetty.multipartConfig.maxTotalRequestSize(50L * 1024L * 1024L, io.javalin.config.SizeUnit.BYTES);
-            config.jetty.multipartConfig.maxFileSize(50L * 1024L * 1024L, io.javalin.config.SizeUnit.BYTES);
+            config.staticFiles.add(staticFiles -> {
+                staticFiles.hostedPath = "/";
+                staticFiles.directory = "src/main/resources/public";
+                staticFiles.location = Location.EXTERNAL;
+            });
         }).start(port);
 
-        // Upload new image buffer
+        // Upload static image (Supports both Multipart FormData and raw bytes)
         app.post("/api/upload", ctx -> {
-            byte[] bytes = ctx.bodyAsBytes();
+            byte[] bytes = null;
+            var file = ctx.uploadedFile("file");
+            if (file != null) {
+                try (InputStream is = file.content()) {
+                    bytes = is.readAllBytes();
+                }
+            } else {
+                bytes = ctx.bodyAsBytes();
+            }
+
+            if (bytes == null || bytes.length == 0) {
+                ctx.status(400).result("Empty image payload.");
+                return;
+            }
+            
             BufferedImage img = ImageIO.read(new ByteArrayInputStream(bytes));
             if (img != null) {
                 currentSourceImage = img;
-                ctx.result("Image uploaded successfully. Dimensions: " + img.getWidth() + "x" + img.getHeight());
+                ctx.result("Image uploaded successfully.");
             } else {
-                ctx.status(400).result("Invalid image payload.");
+                ctx.status(400).result("Invalid image format.");
             }
         });
 
-        // Add operation step to active pipeline sequence
-        app.post("/api/pipeline/add", ctx -> {
-            String op = ctx.queryParam("op");
-            if (op == null) {
-                ctx.status(400).result("Missing 'op' parameter");
+        // Upload video file
+        app.post("/api/video/upload", ctx -> {
+            var file = ctx.uploadedFile("file");
+            if (file == null) {
+                ctx.status(400).result("No video file uploaded.");
+                return;
+            }
+            File tempVideo = File.createTempFile("cilab_upload_", "_" + file.filename());
+            try (InputStream is = file.content();
+                 OutputStream os = new FileOutputStream(tempVideo)) {
+                is.transferTo(os);
+            }
+            currentVideoFile = tempVideo;
+            ctx.result("Video uploaded successfully.");
+        });
+
+        // Live MJPEG Video Stream Preview
+        app.get("/api/video/stream-preview", ctx -> {
+            if (currentVideoFile == null || !currentVideoFile.exists()) {
+                ctx.status(400).result("No video file uploaded.");
                 return;
             }
 
-            switch (op.toLowerCase()) {
-                // Basic Operations
-                case "grayscale" -> pipeline.addOperation(new GrayscaleOperation());
-                case "resize" -> {
-                    int w = Integer.parseInt(getParam(ctx, "width", "256"));
-                    int h = Integer.parseInt(getParam(ctx, "height", "256"));
-                    pipeline.addOperation(new ResizeOperation(w, h));
-                }
-                case "rotate" -> {
-                    double angle = Double.parseDouble(getParam(ctx, "angle", "90.0"));
-                    pipeline.addOperation(new RotateOperation(angle));
-                }
-                case "flip" -> {
-                    boolean horizontal = Boolean.parseBoolean(getParam(ctx, "horizontal", "true"));
-                    pipeline.addOperation(new FlipOperation(horizontal));
-                }
-                case "crop" -> {
-                    int x = Integer.parseInt(getParam(ctx, "x", "0"));
-                    int y = Integer.parseInt(getParam(ctx, "y", "0"));
-                    int w = Integer.parseInt(getParam(ctx, "width", "256"));
-                    int h = Integer.parseInt(getParam(ctx, "height", "256"));
-                    pipeline.addOperation(new CropOperation(x, y, w, h));
-                }
-                case "invert" -> pipeline.addOperation(new InvertOperation());
-                case "watermark" -> {
-                    String text = getParam(ctx, "text", "CILab");
-                    float opacity = Float.parseFloat(getParam(ctx, "opacity", "0.5"));
-                    pipeline.addOperation(new WatermarkOperation(text, opacity));
-                }
+            ctx.contentType("multipart/x-mixed-replace; boundary=--jpgboundary");
+            OutputStream os = ctx.outputStream();
+            pipeline.resetState();
 
-                // Scientific / Lab Operations
-                case "gaussian_blur" -> {
-                    float sigma = Float.parseFloat(getParam(ctx, "sigma", "2.0"));
-                    pipeline.addOperation(new GaussianBlurOperation(sigma));
-                }
-                case "median_filter" -> {
-                    int radius = Integer.parseInt(getParam(ctx, "radius", "3"));
-                    pipeline.addOperation(new MedianFilterOperation(radius));
-                }
-                case "bilateral_filter" -> {
-                    double sigmaColor = Double.parseDouble(getParam(ctx, "sigmaColor", "75.0"));
-                    double sigmaSpace = Double.parseDouble(getParam(ctx, "sigmaSpace", "75.0"));
-                    pipeline.addOperation(new BilateralFilterOperation(sigmaColor, sigmaSpace));
-                }
-                case "global_hist_eq" -> pipeline.addOperation(new GlobalHistogramEqualizationOperation());
-                case "clahe" -> {
-                    int tileSize = Integer.parseInt(getParam(ctx, "tileSize", "8"));
-                    float clipLimit = Float.parseFloat(getParam(ctx, "clipLimit", "2.0"));
-                    pipeline.addOperation(new CLAHEOperation(tileSize, clipLimit));
-                }
-                case "unsharp_mask" -> {
-                    float amount = Float.parseFloat(getParam(ctx, "amount", "1.5"));
-                    pipeline.addOperation(new UnsharpMaskOperation(amount));
-                }
-                case "sobel" -> pipeline.addOperation(new SobelEdgeDetectionOperation());
-                case "otsu" -> pipeline.addOperation(new OtsuThresholdOperation());
-                case "sauvola" -> {
-                    int window = Integer.parseInt(getParam(ctx, "window", "15"));
-                    double k = Double.parseDouble(getParam(ctx, "k", "0.2"));
-                    pipeline.addOperation(new SauvolaThresholdOperation(window, k));
-                }
-                case "morphology_dilation" -> {
-                    int size = Integer.parseInt(getParam(ctx, "size", "3"));
-                    pipeline.addOperation(new MorphologyOperation(MorphologyOperation.Type.DILATION, size));
-                }
-                case "morphology_erosion" -> {
-                    int size = Integer.parseInt(getParam(ctx, "size", "3"));
-                    pipeline.addOperation(new MorphologyOperation(MorphologyOperation.Type.EROSION, size));
-                }
+            try (FFmpegFrameGrabber grabber = new FFmpegFrameGrabber(currentVideoFile);
+                 Java2DFrameConverter converter = new Java2DFrameConverter()) {
 
-                // Advanced Operations
-                case "box_filter" -> {
-                    int size = Integer.parseInt(getParam(ctx, "size", "3"));
-                    pipeline.addOperation(new BoxFilterOperation(size));
+                grabber.start();
+                org.bytedeco.javacv.Frame videoFrame;
+                long frameIndex = 0;
+                double fps = grabber.getFrameRate() > 0 ? grabber.getFrameRate() : 30.0;
+
+                while ((videoFrame = grabber.grabImage()) != null) {
+                    BufferedImage bImg = converter.getBufferedImage(videoFrame);
+                    if (bImg != null) {
+                        Frame frame = new Frame(bImg, frameIndex, frameIndex / fps);
+                        BufferedImage processed = pipeline.executeFrame(frame, List.of());
+
+                        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                        ImageIO.write(processed, "jpeg", baos);
+
+                        os.write(("--jpgboundary\r\nContent-Type: image/jpeg\r\n\r\n").getBytes());
+                        os.write(baos.toByteArray());
+                        os.write("\r\n".getBytes());
+                        os.flush();
+
+                        frameIndex++;
+                    }
+                    Thread.sleep(33); // Stream at ~30 FPS
                 }
-                case "fft_spectrum" -> pipeline.addOperation(new FFTSpectrumOperation());
-                case "retinex" -> {
-                    float sigma = Float.parseFloat(getParam(ctx, "sigma", "15.0"));
-                    pipeline.addOperation(new SingleScaleRetinexOperation(sigma));
-                }
-                case "reinhard_tone" -> {
-                    float key = Float.parseFloat(getParam(ctx, "key", "0.18"));
-                    pipeline.addOperation(new ReinhardToneMapOperation(key));
-                }
-                case "demosaic_mhc" -> pipeline.addOperation(new DemosaicMHCOperation());
-                case "wiener_deconv" -> {
-                    double noise = Double.parseDouble(getParam(ctx, "noise", "0.01"));
-                    pipeline.addOperation(new WienerDeconvolutionOperation(noise));
-                }
-                case "morph_open" -> {
-                    int size = Integer.parseInt(getParam(ctx, "size", "3"));
-                    pipeline.addOperation(new MorphologicalOpenCloseOperation(MorphologicalOpenCloseOperation.Mode.OPENING, size));
-                }
-                case "morph_close" -> {
-                    int size = Integer.parseInt(getParam(ctx, "size", "3"));
-                    pipeline.addOperation(new MorphologicalOpenCloseOperation(MorphologicalOpenCloseOperation.Mode.CLOSING, size));
-                }
-                case "top_hat" -> {
-                    int size = Integer.parseInt(getParam(ctx, "size", "3"));
-                    pipeline.addOperation(new TopHatTransformOperation(size));
-                }
-                case "vignetting" -> {
-                    double alpha = Double.parseDouble(getParam(ctx, "alpha", "0.5"));
-                    pipeline.addOperation(new VignettingCorrectionOperation(alpha));
-                }
-                case "haar_wavelet" -> pipeline.addOperation(new HaarWaveletTransformOperation());
-                case "spc" -> {
-                    double scaling = Double.parseDouble(ctx.queryParam("scaling") != null ? ctx.queryParam("scaling") : "1000");
-                    int frames = Integer.parseInt(ctx.queryParam("frames") != null ? ctx.queryParam("frames") : "50");
-                    pipeline.addOperation(new SpcSimulatorOperation(scaling, frames));
-                    break;}
-                default -> {
-                    ctx.status(400).result("Unknown operation: " + op);
-                    return;
-                }
-            }
-            ctx.result("Added operation: " + op);
+                grabber.stop();
+            } catch (Exception ignored) {}
         });
 
-        // Remove a step by index
+        // Background export trigger: POST /api/video/process?format=mp4|webm
+        app.post("/api/video/process", ctx -> {
+            if (currentVideoFile == null || !currentVideoFile.exists()) {
+                ctx.status(400).result("No video file loaded.");
+                return;
+            }
+            String format = getParam(ctx, "format", "mp4");
+            VideoJob job = videoService.submitJob(currentVideoFile, pipeline, format);
+            ctx.json(Map.of("jobId", job.getJobId()));
+        });
+
+        // Download processed video (mp4 or webm, depending on the job)
+        app.get("/api/video/download/{jobId}", ctx -> {
+            VideoJob job = videoService.getJob(ctx.pathParam("jobId"));
+            if (job == null || job.getStatus() != JobStatus.COMPLETED) {
+                ctx.status(400).result("Job not ready or failed.");
+                return;
+            }
+            File file = job.getOutputFile();
+            if (!file.exists() || file.length() == 0) {
+                ctx.status(500).result("Exported video file missing or empty.");
+                return;
+            }
+            boolean webm = file.getName().endsWith(".webm");
+            ctx.contentType(webm ? "video/webm" : "video/mp4");
+            ctx.header("Content-Disposition",
+                    "attachment; filename=\"processed_video." + (webm ? "webm" : "mp4") + "\"");
+            ctx.result(new java.io.FileInputStream(file));
+        });
+
+        // Query background job status
+        app.get("/api/video/status/{jobId}", ctx -> {
+            String jobId = ctx.pathParam("jobId");
+            VideoJob job = videoService.getJob(jobId);
+            if (job == null) {
+                ctx.status(404).result("Job not found.");
+                return;
+            }
+            ctx.json(Map.of(
+                "jobId", job.getJobId(),
+                "status", job.getStatus().name(),
+                "progress", job.getProgress(),
+                "errorMessage", job.getErrorMessage() != null ? job.getErrorMessage() : ""
+            ));
+        });
+
+        // Add operation step to execution pipeline (Handles ALL tree catalog operations)
+        app.post("/api/pipeline/add", ctx -> {
+            String op = ctx.queryParam("op");
+            if (op == null) {
+                ctx.status(400).result("Missing operation 'op' parameter.");
+                return;
+            }
+
+            ImageOperation operationInstance = OperationFactory.create(op, ctx);
+            if (operationInstance != null) {
+                pipeline.addOperation(operationInstance);
+                ctx.result("Added operation: " + operationInstance.getName());
+            } else {
+                ctx.status(400).result("Unknown or unsupported operation: " + op);
+            }
+        });
+
+        // Remove operation step by index
         app.post("/api/pipeline/remove", ctx -> {
             int index = Integer.parseInt(getParam(ctx, "index", "0"));
             if (index >= 0 && index < pipeline.getOperations().size()) {
-                pipeline.getOperations().remove(index);
+                pipeline.removeOperation(index);
                 ctx.result("Removed step at index " + index);
             } else {
-                ctx.status(400).result("Invalid step index.");
+                ctx.status(400).result("Invalid index.");
             }
         });
 
-        // Clear active pipeline
+        // Clear all pipeline steps
         app.post("/api/pipeline/clear", ctx -> {
             pipeline.clear();
             ctx.result("Pipeline cleared.");
         });
 
-        // List active pipeline steps
+        // List active pipeline operations
         app.get("/api/pipeline/list", ctx -> {
             List<String> names = new ArrayList<>();
             for (ImageOperation op : pipeline.getOperations()) {
@@ -194,10 +212,11 @@ public class WebServer {
             ctx.json(names);
         });
 
-        // Stream current pipeline PNG result
+        // Static image preview
         app.get("/api/preview", ctx -> {
+            ctx.header("Cache-Control", "no-cache, no-store, must-revalidate");
             if (currentSourceImage == null) {
-                ctx.status(400).result("No source image loaded.");
+                ctx.status(400).result("No active image loaded.");
                 return;
             }
             BufferedImage result = pipeline.execute(currentSourceImage);
@@ -205,6 +224,102 @@ public class WebServer {
             ImageIO.write(result, "png", baos);
             ctx.contentType("image/png").result(baos.toByteArray());
         });
+    }
+
+    private static ImageOperation createOperation(String opKey, Context ctx) {
+        String name = opKey.toLowerCase();
+        return switch (name) {
+            case "grayscale" -> tryCreate("com.imageapp.GrayscaleOperation");
+            case "invert" -> tryCreate("com.imageapp.InvertOperation");
+            case "sobel" -> tryCreate("com.imageapp.SobelEdgeDetectionOperation");
+            case "fft_spectrum" -> tryCreate("com.imageapp.FFTSpectrumOperation");
+            case "global_hist_eq" -> tryCreate("com.imageapp.GlobalHistEqOperation");
+            case "demosaic_mhc" -> tryCreate("com.imageapp.DemosaicMHCOperation");
+            case "haar_wavelet" -> tryCreate("com.imageapp.HaarWaveletOperation");
+            case "otsu" -> tryCreate("com.imageapp.OtsuThresholdOperation");
+
+            case "resize" -> tryCreate("com.imageapp.ResizeOperation",
+                    Integer.parseInt(getParam(ctx, "width", "256")),
+                    Integer.parseInt(getParam(ctx, "height", "256")));
+            case "rotate" -> tryCreate("com.imageapp.RotateOperation",
+                    Double.parseDouble(getParam(ctx, "angle", "90")));
+            case "flip" -> tryCreate("com.imageapp.FlipOperation",
+                    Boolean.parseBoolean(getParam(ctx, "horizontal", "true")));
+            case "crop" -> tryCreate("com.imageapp.CropOperation",
+                    Integer.parseInt(getParam(ctx, "x", "0")),
+                    Integer.parseInt(getParam(ctx, "y", "0")),
+                    Integer.parseInt(getParam(ctx, "width", "256")),
+                    Integer.parseInt(getParam(ctx, "height", "256")));
+            case "watermark" -> tryCreate("com.imageapp.WatermarkOperation",
+                    getParam(ctx, "text", "CILab"),
+                    Float.parseFloat(getParam(ctx, "opacity", "0.5")));
+            case "gaussian_blur" -> tryCreate("com.imageapp.GaussianBlurOperation",
+                    Double.parseDouble(getParam(ctx, "sigma", "2.0")));
+            case "median_filter" -> tryCreate("com.imageapp.MedianFilterOperation",
+                    Integer.parseInt(getParam(ctx, "radius", "3")));
+            case "bilateral_filter" -> tryCreate("com.imageapp.BilateralFilterOperation",
+                    Double.parseDouble(getParam(ctx, "sigmaColor", "75.0")),
+                    Double.parseDouble(getParam(ctx, "sigmaSpace", "75.0")));
+            case "clahe" -> tryCreate("com.imageapp.ClaheOperation",
+                    Integer.parseInt(getParam(ctx, "tileSize", "8")),
+                    Double.parseDouble(getParam(ctx, "clipLimit", "2.0")));
+            case "unsharp_mask" -> tryCreate("com.imageapp.UnsharpMaskOperation",
+                    Double.parseDouble(getParam(ctx, "amount", "1.5")));
+            case "sauvola" -> tryCreate("com.imageapp.SauvolaThresholdOperation",
+                    Integer.parseInt(getParam(ctx, "window", "15")),
+                    Double.parseDouble(getParam(ctx, "k", "0.2")));
+            case "morphology_dilation" -> tryCreate("com.imageapp.MorphologyDilationOperation",
+                    Integer.parseInt(getParam(ctx, "size", "3")));
+            case "morphology_erosion" -> tryCreate("com.imageapp.MorphologyErosionOperation",
+                    Integer.parseInt(getParam(ctx, "size", "3")));
+            case "morph_open" -> tryCreate("com.imageapp.MorphOpenOperation",
+                    Integer.parseInt(getParam(ctx, "size", "3")));
+            case "morph_close" -> tryCreate("com.imageapp.MorphCloseOperation",
+                    Integer.parseInt(getParam(ctx, "size", "3")));
+            case "top_hat" -> tryCreate("com.imageapp.TopHatOperation",
+                    Integer.parseInt(getParam(ctx, "size", "3")));
+            case "box_filter" -> tryCreate("com.imageapp.BoxFilterOperation",
+                    Integer.parseInt(getParam(ctx, "size", "3")));
+            case "retinex" -> tryCreate("com.imageapp.RetinexOperation",
+                    Double.parseDouble(getParam(ctx, "sigma", "15.0")));
+            case "reinhard_tone" -> tryCreate("com.imageapp.ReinhardToneOperation",
+                    Double.parseDouble(getParam(ctx, "key", "0.18")));
+            case "wiener_deconv" -> tryCreate("com.imageapp.WienerDeconvOperation",
+                    Double.parseDouble(getParam(ctx, "noise", "0.01")));
+            case "vignetting" -> tryCreate("com.imageapp.VignettingOperation",
+                    Double.parseDouble(getParam(ctx, "alpha", "0.5")));
+            case "spc" -> tryCreate("com.imageapp.SpcSimulatorOperation",
+                    Double.parseDouble(getParam(ctx, "scaling", "1000")),
+                    Integer.parseInt(getParam(ctx, "frames", "50")));
+            case "frame_diff" -> tryCreate("com.imageapp.FrameDifferenceOperation",
+                    Integer.parseInt(getParam(ctx, "threshold", "30")));
+            case "frame_avg" -> tryCreate("com.imageapp.FrameAveragingOperation",
+                    Integer.parseInt(getParam(ctx, "window", "5")));
+            case "bg_subtraction" -> tryCreate("com.imageapp.BackgroundSubtractionOperation",
+                    Double.parseDouble(getParam(ctx, "alpha", "0.05")));
+            default -> null;
+        };
+    }
+
+    private static ImageOperation tryCreate(String className, Object... args) {
+        try {
+            Class<?> clazz = Class.forName(className);
+            if (args.length == 0) {
+                return (ImageOperation) clazz.getDeclaredConstructor().newInstance();
+            }
+            for (var ctor : clazz.getDeclaredConstructors()) {
+                if (ctor.getParameterCount() == args.length) {
+                    try {
+                        ctor.setAccessible(true);
+                        return (ImageOperation) ctor.newInstance(args);
+                    } catch (Exception ignored) {}
+                }
+            }
+            return (ImageOperation) clazz.getDeclaredConstructor().newInstance();
+        } catch (Exception e) {
+            System.err.println("Could not create " + className + ": " + e.getMessage());
+            return null;
+        }
     }
 
     private static String getParam(Context ctx, String name, String defaultValue) {
@@ -219,14 +334,10 @@ public class WebServer {
         g.fillRect(0, 0, 512, 512);
         g.setColor(Color.CYAN);
         g.fillOval(128, 128, 256, 256);
-        g.setColor(Color.BLACK);
-        g.drawString("CILab Scientific Core Buffer", 170, 260);
         g.dispose();
     }
 
     public static void main(String[] args) {
-        int port = 7070;
-        System.out.println("Starting CILab Image Processor server on http://localhost:" + port);
-        start(port);
+        start(7070);
     }
 }

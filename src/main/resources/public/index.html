@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CILab Image Processor Core</title>
+    <title>CILab Image & Video Processor Core</title>
     <style>
         :root {
             --bg-color: #1e1e2e;
@@ -12,6 +12,7 @@
             --accent-color: #74c7ec;
             --text-color: #cdd6f4;
             --danger-color: #f38ba8;
+            --success-color: #a6e3a1;
         }
 
         body {
@@ -24,15 +25,13 @@
             overflow: hidden;
         }
 
-        /* Layout Columns */
         .sidebar-tree { width: 320px; background: var(--panel-bg); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; }
-        .main-stage { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; position: relative; }
+        .main-stage { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 20px; overflow-y: auto; }
         .pipeline-panel { width: 300px; background: var(--panel-bg); border-left: 1px solid var(--border-color); display: flex; flex-direction: column; }
 
         .panel-header { padding: 15px; font-weight: bold; border-bottom: 1px solid var(--border-color); background: rgba(0,0,0,0.1); }
         .panel-content { flex: 1; overflow-y: auto; padding: 10px; }
 
-        /* Tree UI Components */
         ul.tree, ul.tree ul { list-style-type: none; padding-left: 15px; margin: 0; }
         .tree-node { font-weight: bold; cursor: pointer; padding: 6px 0; color: var(--accent-color); user-select: none; }
         .tree-leaf { padding: 4px 8px; margin: 2px 0; background: rgba(255,255,255,0.05); border-radius: 4px; display: flex; justify-content: space-between; align-items: center; }
@@ -47,22 +46,50 @@
             cursor: pointer;
             font-weight: bold;
         }
-        button:hover { opacity: 0.9; }
+        button:hover { opacity: 0.85; }
         button.btn-danger { background: var(--danger-color); color: #fff; }
+        button.btn-success { background: var(--success-color); color: #11111b; }
 
-        /* Canvas & Preview */
-        .canvas-container { max-width: 100%; max-height: 80vh; border: 2px dashed var(--border-color); border-radius: 8px; padding: 10px; background: #11111b; }
-        #preview-img { max-width: 100%; max-height: 70vh; display: block; margin: 0 auto; }
+        .canvas-container { width: 100%; max-width: 800px; height: 500px; border: 2px dashed var(--border-color); border-radius: 8px; padding: 10px; background: #11111b; display: flex; justify-content: center; align-items: center; }
+        #preview-img { max-width: 100%; max-height: 100%; display: block; object-fit: contain; }
         
-        .upload-bar { margin-bottom: 15px; display: flex; gap: 10px; }
-
-        /* Sequence Steps List */
+        .upload-bar { margin-bottom: 15px; display: flex; gap: 10px; align-items: center; background: var(--panel-bg); padding: 10px 15px; border-radius: 8px; border: 1px solid var(--border-color); }
         .pipeline-step { background: rgba(255,255,255,0.05); border: 1px solid var(--border-color); padding: 8px 12px; margin-bottom: 8px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; }
+
+        .export-panel {
+            margin-top: 15px;
+            width: 100%;
+            max-width: 800px;
+            background: var(--panel-bg);
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .progress-wrap {
+            width: 100%;
+            background: #11111b;
+            height: 18px;
+            border-radius: 9px;
+            overflow: hidden;
+            margin-top: 10px;
+            display: none;
+        }
+
+        .progress-fill {
+            width: 0%;
+            height: 100%;
+            background: var(--accent-color);
+            transition: width 0.3s;
+        }
     </style>
 </head>
 <body>
 
-    <!-- Left Panel: Operations Tree Structure -->
+    <!-- Left Panel: Catalog Tree -->
     <div class="sidebar-tree">
         <div class="panel-header">📁 Operations Catalog</div>
         <div class="panel-content">
@@ -114,36 +141,58 @@
                 <li>
                     <div class="tree-node" onclick="toggleTree(this)">▶ Simulators</div>
                     <ul style="display: none;">
-                        <li class="tree-leaf">SPC Simulator<button onclick="addOp('spc&scaling=' + prompt('Scaling Factor:', '1000') + '&frames=' + prompt('Total Frames:', '50'))">+</button></li>
+                        <li class="tree-leaf">SPC Simulator <button onclick="addOp('spc&scaling=' + prompt('Scaling Factor:', '1000') + '&frames=' + prompt('Total Frames:', '50'))">+</button></li>
+                    </ul>
+                </li>
+                <li>
+                    <div class="tree-node" onclick="toggleTree(this)">▶ Video Operations</div>
+                    <ul style="display: none;">
+                        <li class="tree-leaf">Frame Difference <button onclick="addOp('frame_diff&threshold=' + prompt('Threshold (0-255):', '30'))">+</button></li>
+                        <li class="tree-leaf">Temporal Frame Avg <button onclick="addOp('frame_avg&window=' + prompt('Window Size (frames):', '5'))">+</button></li>
+                        <li class="tree-leaf">BG Subtraction <button onclick="addOp('bg_subtraction&alpha=' + prompt('Learning rate alpha (0.01-0.2):', '0.05'))">+</button></li>
                     </ul>
                 </li>
             </ul>
         </div>
     </div>
 
-    <!-- Center Panel: Live Preview & Canvas -->
+    <!-- Center Stage -->
     <div class="main-stage">
         <div class="upload-bar">
-            <input type="file" id="file-input" accept="image/*">
-            <button onclick="uploadImage()">Upload Image</button>
+            <input type="file" id="file-input" accept="image/*,video/*">
+            <button onclick="uploadMedia()">Upload Media</button>
+            <span style="color: var(--border-color);">|</span>
+            <button onclick="switchMode('image')">Image Preview Mode</button>
+            <button onclick="switchMode('video')">Video Stream Mode</button>
         </div>
+
         <div class="canvas-container">
             <img id="preview-img" src="/api/preview" alt="Pipeline Preview Output">
         </div>
+
+        <div class="export-panel" id="export-panel" style="display: none;">
+            <button class="btn-success" style="width: 100%; font-size: 1rem; padding: 10px;" onclick="startVideoExport()">
+                Render & Export Full MP4 Video
+            </button>
+            <div class="progress-wrap" id="progress-wrap">
+                <div class="progress-fill" id="progress-fill"></div>
+            </div>
+            <p id="status-text" style="margin-top: 8px; margin-bottom: 0; font-size: 0.9rem;"></p>
+        </div>
     </div>
 
-    <!-- Right Panel: Active Execution Pipeline Sequence -->
+    <!-- Right Pipeline Panel -->
     <div class="pipeline-panel">
         <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center;">
             <span>⚙ Active Pipeline</span>
             <button class="btn-danger" onclick="clearPipeline()">Clear All</button>
         </div>
-        <div class="panel-content" id="pipeline-list">
-            <!-- Dynamically Populated -->
-        </div>
+        <div class="panel-content" id="pipeline-list"></div>
     </div>
 
     <script>
+        let currentMode = 'image';
+
         function toggleTree(element) {
             const subTree = element.nextElementSibling;
             if (subTree.style.display === "none") {
@@ -152,6 +201,20 @@
             } else {
                 subTree.style.display = "none";
                 element.innerText = element.innerText.replace('▼', '▶');
+            }
+        }
+
+        function switchMode(mode) {
+            currentMode = mode;
+            const img = document.getElementById('preview-img');
+            const exportPanel = document.getElementById('export-panel');
+
+            if (mode === 'video') {
+                img.src = '/api/video/stream-preview';
+                exportPanel.style.display = 'flex';
+            } else {
+                img.src = '/api/preview?t=' + new Date().getTime();
+                exportPanel.style.display = 'none';
             }
         }
 
@@ -171,8 +234,9 @@
                 container.appendChild(step);
             });
 
-            // Refresh Image Preview
-            document.getElementById('preview-img').src = '/api/preview?t=' + new Date().getTime();
+            if (currentMode === 'image') {
+                document.getElementById('preview-img').src = '/api/preview?t=' + new Date().getTime();
+            }
         }
 
         async function addOp(paramStr) {
@@ -190,18 +254,58 @@
             fetchPipeline();
         }
 
-        async function uploadImage() {
+        async function uploadMedia() {
             const input = document.getElementById('file-input');
-            if (!input.files[0]) return alert('Select an image file first.');
+            if (!input.files[0]) return alert('Select an image or video file first.');
             
-            await fetch('/api/upload', {
-                method: 'POST',
-                body: input.files[0]
-            });
+            const file = input.files[0];
+            const formData = new FormData();
+            formData.append('file', file);
+
+            if (file.type.startsWith('video/')) {
+                await fetch('/api/video/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                switchMode('video');
+            } else {
+                await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                switchMode('image');
+            }
             fetchPipeline();
         }
 
-        // Initial Load
+        async function startVideoExport() {
+            const res = await fetch('/api/video/process', { method: 'POST' });
+            const data = await res.json();
+            if (!data.jobId) return alert('Failed to start video processing job.');
+
+            document.getElementById('progress-wrap').style.display = 'block';
+            pollJobStatus(data.jobId);
+        }
+
+        function pollJobStatus(jobId) {
+            const interval = setInterval(async () => {
+                const res = await fetch('/api/video/status/' + jobId);
+                const job = await res.json();
+
+                document.getElementById('progress-fill').style.width = job.progress + '%';
+                document.getElementById('status-text').innerText = `Processing: ${job.status} (${Math.round(job.progress)}%)`;
+
+                if (job.status === 'COMPLETED') {
+                    clearInterval(interval);
+                    document.getElementById('status-text').innerHTML = 
+                        `<a href="/api/video/download/${jobId}" style="color: var(--accent-color); font-weight: bold;">📥 Download Rendered Video MP4</a>`;
+                } else if (job.status === 'FAILED') {
+                    clearInterval(interval);
+                    alert('Video processing failed: ' + job.errorMessage);
+                }
+            }, 1000);
+        }
+
         fetchPipeline();
     </script>
 </body>
