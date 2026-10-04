@@ -16,36 +16,71 @@ public class BatchProcessor {
     }
 
     public static void processDirectory(File inputDir, File outputDir, ImagePipeline pipeline, String format, ProgressListener listener) {
-        File[] files = inputDir.listFiles((dir, name) -> name.toLowerCase().matches(".*\\.(png|jpg|jpeg|bmp|gif)"));
-        if (files == null || files.length == 0) {
+        // Deprecated single-level batch; redirect to recursive processor
+        processDirectoryRecursive(inputDir.toPath(), inputDir.toPath(), outputDir.toPath(), pipeline, format, listener);
+    }
+
+    // Recursive directory walker that preserves relative paths and filenames.
+    public static void processDirectoryRecursive(java.nio.file.Path rootInput,
+                                                 java.nio.file.Path currentInput,
+                                                 java.nio.file.Path rootOutput,
+                                                 ImagePipeline pipeline,
+                                                 String format,
+                                                 ProgressListener listener) {
+        java.util.List<java.nio.file.Path> files = new java.util.ArrayList<>();
+        try (java.util.stream.Stream<java.nio.file.Path> stream = java.nio.file.Files.walk(currentInput)) {
+            stream.filter(p -> java.nio.file.Files.isRegularFile(p))
+                  .filter(p -> p.getFileName().toString().toLowerCase().matches(".*\\.(png|jpg|jpeg|bmp|gif)"))
+                  .forEach(files::add);
+        } catch (IOException e) {
             if (listener != null) listener.onComplete();
             return;
         }
 
-        if (!outputDir.exists()) {
-            outputDir.mkdirs();
+        if (files.isEmpty()) {
+            if (listener != null) listener.onComplete();
+            return;
         }
 
-        ExecutorService executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
-        int total = files.length;
+        int total = files.size();
         int[] completed = {0};
 
-        for (File file : files) {
+        ExecutorService executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+
+        for (java.nio.file.Path inPath : files) {
             executor.submit(() -> {
                 try {
-                    BufferedImage source = ImageIO.read(file);
+                    java.nio.file.Path rel = rootInput.relativize(inPath);
+                    java.nio.file.Path outPath = rootOutput.resolve(rel);
+                    java.nio.file.Path outDir = outPath.getParent();
+                    if (outDir != null && !java.nio.file.Files.exists(outDir)) {
+                        java.nio.file.Files.createDirectories(outDir);
+                    }
+
+                    BufferedImage source = ImageIO.read(inPath.toFile());
                     if (source != null) {
                         BufferedImage processed = pipeline.execute(source);
-                        String baseName = file.getName().substring(0, file.getName().lastIndexOf('.'));
-                        String outName = baseName + "_processed." + format;
-                        ImageIO.write(processed, format, new File(outputDir, outName));
+
+                        String outFileName = outPath.getFileName().toString();
+                        String srcExt = "";
+                        int dot = outFileName.lastIndexOf('.');
+                        if (dot >= 0) srcExt = outFileName.substring(dot + 1).toLowerCase();
+
+                        if (!format.equalsIgnoreCase(srcExt)) {
+                            // replace extension with requested format
+                            if (dot >= 0) outFileName = outFileName.substring(0, dot) + "." + format;
+                            else outFileName = outFileName + "." + format;
+                        }
+
+                        java.nio.file.Path finalOut = (outDir != null) ? outDir.resolve(outFileName) : rootOutput.resolve(outFileName);
+                        ImageIO.write(processed, format, finalOut.toFile());
                     }
                 } catch (IOException e) {
                     e.printStackTrace();
-                } synchronized (completed) {
-                    completed[0]++;
-                    if (listener != null) {
-                        listener.onProgress(completed[0], total, file.getName());
+                } finally {
+                    synchronized (completed) {
+                        completed[0]++;
+                        if (listener != null) listener.onProgress(completed[0], total, inPath.getFileName().toString());
                     }
                 }
             });
@@ -54,13 +89,9 @@ public class BatchProcessor {
         executor.shutdown();
         new Thread(() -> {
             while (!executor.isTerminated()) {
-                try {
-                    Thread.sleep(100);
-                } catch (InterruptedException ignored) {}
+                try { Thread.sleep(100); } catch (InterruptedException ignored) {}
             }
-            if (listener != null) {
-                listener.onComplete();
-            }
+            if (listener != null) listener.onComplete();
         }).start();
     }
 }

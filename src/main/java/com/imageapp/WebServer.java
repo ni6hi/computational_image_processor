@@ -32,6 +32,19 @@ public class WebServer {
     public static void start(int port) {
         initDefaultCanvas();
 
+        // auto-load pipeline config if present
+        try {
+            java.io.File cfgFile = new java.io.File("pipeline.json");
+            if (cfgFile.exists()) {
+                com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+                PipelineConfig cfg = om.readValue(cfgFile, PipelineConfig.class);
+                pipeline.loadFromConfig(cfg);
+                System.out.println("Loaded pipeline.json with " + pipeline.getOperations().size() + " steps.");
+            }
+        } catch (Exception e) {
+            System.err.println("Failed to auto-load pipeline.json: " + e.getMessage());
+        }
+
         Javalin app = Javalin.create(config -> {
             config.staticFiles.add(staticFiles -> {
                 staticFiles.hostedPath = "/";
@@ -210,6 +223,23 @@ public class WebServer {
                 names.add(op.getName());
             }
             ctx.json(names);
+        });
+
+        // Export pipeline as JSON
+        app.get("/api/pipeline/export", ctx -> {
+            PipelineConfig cfg = pipeline.toConfig();
+            ctx.json(cfg);
+        });
+
+        // Import pipeline from JSON body
+        app.post("/api/pipeline/import", ctx -> {
+            try {
+                PipelineConfig cfg = ctx.bodyAsClass(PipelineConfig.class);
+                pipeline.loadFromConfig(cfg);
+                ctx.result("Pipeline imported. Steps: " + pipeline.getOperations().size());
+            } catch (Exception e) {
+                ctx.status(400).result("Invalid pipeline JSON: " + e.getMessage());
+            }
         });
 
         // Static image preview

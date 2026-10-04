@@ -267,6 +267,8 @@ public class ImageProcessorGUI extends JFrame {
         JPanel topPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
         JButton btnLoadSingle = new JButton("Load Preview Image");
         JButton btnClearPipeline = new JButton("Clear Pipeline");
+        JButton btnSavePipeline = new JButton("Save Pipeline...");
+        JButton btnLoadPipeline = new JButton("Load Pipeline...");
 
         btnLoadSingle.addActionListener(e -> loadPreviewImage());
         btnClearPipeline.addActionListener(e -> {
@@ -275,8 +277,44 @@ public class ImageProcessorGUI extends JFrame {
             updatePreview();
         });
 
+        btnSavePipeline.addActionListener(e -> {
+            JFileChooser chooser = new JFileChooser();
+            chooser.setDialogTitle("Save Pipeline JSON");
+            if (chooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
+                try {
+                    java.io.File out = chooser.getSelectedFile();
+                    com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+                    om.writerWithDefaultPrettyPrinter().writeValue(out, pipeline.toConfig());
+                    JOptionPane.showMessageDialog(this, "Pipeline saved to " + out.getAbsolutePath());
+                } catch (Exception ex) {
+                    JOptionPane.showMessageDialog(this, "Failed to save pipeline: " + ex.getMessage());
+                }
+            }
+        });
+
+        btnLoadPipeline.addActionListener(e -> {
+            JFileChooser chooser = new JFileChooser();
+            chooser.setDialogTitle("Load Pipeline JSON");
+            if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+                try {
+                    java.io.File in = chooser.getSelectedFile();
+                    com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+                    PipelineConfig cfg = om.readValue(in, PipelineConfig.class);
+                    pipeline.loadFromConfig(cfg);
+                    pipelineListModel.clear();
+                    for (ImageOperation op : pipeline.getOperations()) pipelineListModel.addElement(op.getName());
+                    updatePreview();
+                    JOptionPane.showMessageDialog(this, "Pipeline loaded from " + in.getAbsolutePath());
+                } catch (Exception ex) {
+                    JOptionPane.showMessageDialog(this, "Failed to load pipeline: " + ex.getMessage());
+                }
+            }
+        });
+
         topPanel.add(btnLoadSingle);
         topPanel.add(btnClearPipeline);
+        topPanel.add(btnSavePipeline);
+        topPanel.add(btnLoadPipeline);
 
         // --- Bottom Batch Processor Panel ---
         JPanel bottomPanel = new JPanel(new BorderLayout(5, 5));

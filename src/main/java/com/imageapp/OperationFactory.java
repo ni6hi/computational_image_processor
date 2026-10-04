@@ -58,6 +58,93 @@ public class OperationFactory {
         };
     }
 
+        /**
+         * Create an ImageOperation from a simple op key and params map.
+         * This is a convenience for programmatic imports and the GUI.
+         */
+        public static ImageOperation createFromSpec(String opKey, java.util.Map<String, Object> params) {
+        if (opKey == null) return null;
+        String key = opKey.toLowerCase().trim();
+
+        return switch (key) {
+            case "grayscale" -> createGrayscale();
+            case "invert" -> createInvert();
+            case "sobel" -> createSobel();
+            case "global_hist_eq" -> createGlobalHistEq();
+            case "clahe" -> createClahe(
+                parseMapInt(params, "tileSize", 8),
+                parseMapDouble(params, "clipLimit", 2.0));
+            case "unsharp_mask" -> createUnsharpMask(parseMapDouble(params, "amount", 1.5), parseMapDouble(params, "sigma", 1.5));
+            case "gaussian_blur" -> createGaussianBlur(parseMapDouble(params, "sigma", 2.0));
+            case "median_filter" -> createMedianFilter(parseMapInt(params, "radius", 3));
+            case "bilateral_filter" -> createBilateralFilter(
+                parseMapDouble(params, "sigmaColor", 75.0),
+                parseMapDouble(params, "sigmaSpace", 75.0));
+            case "otsu" -> createOtsu();
+            case "sauvola" -> createSauvola(
+                parseMapInt(params, "window", 15),
+                parseMapDouble(params, "k", 0.2));
+            case "resize" -> createResize(
+                parseMapInt(params, "width", 256),
+                parseMapInt(params, "height", 256));
+            case "rotate" -> createRotate(parseMapDouble(params, "angle", 90.0));
+            case "flip" -> createFlip(parseMapBoolean(params, "horizontal", true));
+            case "crop" -> createCrop(
+                parseMapInt(params, "x", 0), parseMapInt(params, "y", 0),
+                parseMapInt(params, "width", 256), parseMapInt(params, "height", 256));
+            case "watermark" -> createWatermark(
+                parseMapString(params, "text", "CILab"),
+                (float) parseMapDouble(params, "opacity", 0.5));
+            case "morphology_dilation" -> createDilation(parseMapInt(params, "size", 3));
+            case "morphology_erosion" -> createErosion(parseMapInt(params, "size", 3));
+            case "morph_open" -> createMorphOpen(parseMapInt(params, "size", 3));
+            case "morph_close" -> createMorphClose(parseMapInt(params, "size", 3));
+            case "top_hat" -> createTopHat(parseMapInt(params, "size", 3));
+            case "box_filter" -> createBoxFilter(parseMapInt(params, "size", 3));
+            case "fft_spectrum" -> createFFTSpectrum();
+            case "retinex" -> createRetinex(parseMapDouble(params, "sigma", 15.0));
+            case "reinhard_tone" -> createReinhardTone(parseMapDouble(params, "key", 0.18));
+            case "demosaic_mhc" -> createDemosaicMHC();
+            case "wiener_deconv" -> createWienerDeconv(parseMapDouble(params, "noise", 0.01), parseMapDouble(params, "sigma", 2.0));
+            case "vignetting" -> createVignetting(parseMapDouble(params, "alpha", 0.5));
+            case "haar_wavelet" -> createHaarWavelet();
+            case "spc" -> createSpcSimulator(
+                parseMapDouble(params, "scaling", 1000.0),
+                parseMapInt(params, "frames", 50));
+            case "frame_diff" -> createFrameDifference(parseMapInt(params, "threshold", 30));
+            case "frame_avg" -> createFrameAveraging(parseMapInt(params, "window", 5));
+            case "bg_subtraction" -> createBackgroundSubtraction(parseMapDouble(params, "alpha", 0.05));
+            default -> null;
+        };
+        }
+
+        private static int parseMapInt(java.util.Map<String, Object> m, String k, int def) {
+        if (m == null || !m.containsKey(k)) return def;
+        Object v = m.get(k);
+        if (v instanceof Number) return ((Number) v).intValue();
+        try { return Integer.parseInt(v.toString()); } catch (Exception e) { return def; }
+        }
+
+        private static double parseMapDouble(java.util.Map<String, Object> m, String k, double def) {
+        if (m == null || !m.containsKey(k)) return def;
+        Object v = m.get(k);
+        if (v instanceof Number) return ((Number) v).doubleValue();
+        try { return Double.parseDouble(v.toString()); } catch (Exception e) { return def; }
+        }
+
+        private static boolean parseMapBoolean(java.util.Map<String, Object> m, String k, boolean def) {
+        if (m == null || !m.containsKey(k)) return def;
+        Object v = m.get(k);
+        if (v instanceof Boolean) return (Boolean) v;
+        try { return Boolean.parseBoolean(v.toString()); } catch (Exception e) { return def; }
+        }
+
+        private static String parseMapString(java.util.Map<String, Object> m, String k, String def) {
+        if (m == null || !m.containsKey(k)) return def;
+        Object v = m.get(k);
+        return v == null ? def : v.toString();
+        }
+
     // =====================================================================
     // Shared helpers
     // =====================================================================
