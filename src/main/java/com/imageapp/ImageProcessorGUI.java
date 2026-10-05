@@ -14,6 +14,7 @@ import javax.swing.BorderFactory;
 import javax.swing.DefaultListModel;
 import javax.swing.ImageIcon;
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JFileChooser;
 import javax.swing.JFrame;
@@ -35,7 +36,9 @@ public class ImageProcessorGUI extends JFrame {
 
     private final DefaultListModel<String> pipelineListModel = new DefaultListModel<>();
     private final JList<String> pipelineJList = new JList<>(pipelineListModel);
-    private final JLabel previewLabel = new JLabel("Load an image to preview results", SwingConstants.CENTER);
+    private final JLabel originalLabel = new JLabel("Original image", SwingConstants.CENTER);
+    private final JLabel previewLabel = new JLabel("Processed preview", SwingConstants.CENTER);
+    private boolean showOriginal = false;
     private final JProgressBar progressBar = new JProgressBar();
 
     public ImageProcessorGUI() {
@@ -258,10 +261,25 @@ public class ImageProcessorGUI extends JFrame {
         // --- Center Preview Panel ---
         JPanel centerPanel = new JPanel(new BorderLayout());
         centerPanel.setBorder(BorderFactory.createTitledBorder("Live Image Preview"));
+
+        // Processed preview (working area)
         previewLabel.setBackground(Color.DARK_GRAY);
         previewLabel.setOpaque(true);
         previewLabel.setForeground(Color.WHITE);
+
         centerPanel.add(new JScrollPane(previewLabel), BorderLayout.CENTER);
+
+        // Create a container that places the original image outside the working area
+        originalLabel.setBackground(Color.DARK_GRAY);
+        originalLabel.setOpaque(true);
+        originalLabel.setForeground(Color.WHITE);
+        originalLabel.setVisible(showOriginal);
+
+        JPanel centerContainer = new JPanel(new BorderLayout(5,5));
+        centerContainer.add(originalLabel, BorderLayout.NORTH); // original is outside the working area
+        centerContainer.add(centerPanel, BorderLayout.CENTER);
+
+        // replace centerPanel usage below with centerContainer
 
         // --- Top Bar Controls ---
         JPanel topPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
@@ -269,8 +287,14 @@ public class ImageProcessorGUI extends JFrame {
         JButton btnClearPipeline = new JButton("Clear Pipeline");
         JButton btnSavePipeline = new JButton("Save Pipeline...");
         JButton btnLoadPipeline = new JButton("Load Pipeline...");
+        JCheckBox chkShowOriginal = new JCheckBox("Show Original", false);
 
         btnLoadSingle.addActionListener(e -> loadPreviewImage());
+        chkShowOriginal.addActionListener(e -> {
+            showOriginal = chkShowOriginal.isSelected();
+            originalLabel.setVisible(showOriginal);
+            updatePreview();
+        });
         btnClearPipeline.addActionListener(e -> {
             pipeline.clear();
             pipelineListModel.clear();
@@ -312,6 +336,7 @@ public class ImageProcessorGUI extends JFrame {
         });
 
         topPanel.add(btnLoadSingle);
+        topPanel.add(chkShowOriginal);
         topPanel.add(btnClearPipeline);
         topPanel.add(btnSavePipeline);
         topPanel.add(btnLoadPipeline);
@@ -331,7 +356,7 @@ public class ImageProcessorGUI extends JFrame {
         // --- Main Frame Assembly ---
         add(topPanel, BorderLayout.NORTH);
         add(leftPanel, BorderLayout.WEST);
-        add(centerPanel, BorderLayout.CENTER);
+        add(centerContainer, BorderLayout.CENTER);
         add(bottomPanel, BorderLayout.SOUTH);
     }
 
@@ -383,21 +408,40 @@ public class ImageProcessorGUI extends JFrame {
 
     private void updatePreview() {
         if (currentOriginalImage == null) return;
-
         currentPreviewImage = pipeline.execute(currentOriginalImage);
+        int totalWidth = previewLabel.getWidth() > 0 ? previewLabel.getWidth() : 600;
+        int totalHeight = previewLabel.getHeight() > 0 ? previewLabel.getHeight() : 500;
 
-        int maxWidth = previewLabel.getWidth() > 0 ? previewLabel.getWidth() : 600;
-        int maxHeight = previewLabel.getHeight() > 0 ? previewLabel.getHeight() : 500;
-
-        double scale = Math.min((double) maxWidth / currentPreviewImage.getWidth(), (double) maxHeight / currentPreviewImage.getHeight());
+        // Processed (working area) - fit into previewLabel area
+        int imgW = currentPreviewImage.getWidth();
+        int imgH = currentPreviewImage.getHeight();
+        double scale = Math.min((double) totalWidth / imgW, (double) totalHeight / imgH);
         scale = Math.min(scale, 1.0);
-
-        int previewW = (int) (currentPreviewImage.getWidth() * scale);
-        int previewH = (int) (currentPreviewImage.getHeight() * scale);
-
+        int previewW = (int) (imgW * scale);
+        int previewH = (int) (imgH * scale);
         Image scaled = currentPreviewImage.getScaledInstance(previewW, previewH, Image.SCALE_SMOOTH);
         previewLabel.setIcon(new ImageIcon(scaled));
         previewLabel.setText("");
+
+        // Original (outside working area) - only when toggled on
+        if (showOriginal) {
+            int origMaxW = Math.min(400, totalWidth);
+            int origMaxH = 160;
+            int oW = currentOriginalImage.getWidth();
+            int oH = currentOriginalImage.getHeight();
+            double oScale = Math.min((double) origMaxW / oW, (double) origMaxH / oH);
+            oScale = Math.min(oScale, 1.0);
+            int origW = (int) (oW * oScale);
+            int origH = (int) (oH * oScale);
+            Image scaledOrig = currentOriginalImage.getScaledInstance(origW, origH, Image.SCALE_SMOOTH);
+            originalLabel.setIcon(new ImageIcon(scaledOrig));
+            originalLabel.setText("");
+            originalLabel.setVisible(true);
+        } else {
+            originalLabel.setIcon(null);
+            originalLabel.setText("Original image");
+            originalLabel.setVisible(false);
+        }
     }
 
     private void runBatchProcessing() {

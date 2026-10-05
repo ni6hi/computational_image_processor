@@ -50,8 +50,9 @@
         button.btn-danger { background: var(--danger-color); color: #fff; }
         button.btn-success { background: var(--success-color); color: #11111b; }
 
-        .canvas-container { width: 100%; max-width: 800px; height: 500px; border: 2px dashed var(--border-color); border-radius: 8px; padding: 10px; background: #11111b; display: flex; justify-content: center; align-items: center; }
-        #preview-img { max-width: 100%; max-height: 100%; display: block; object-fit: contain; }
+        .canvas-container { width: 100%; max-width: 1000px; height: 500px; border: 2px dashed var(--border-color); border-radius: 8px; padding: 10px; background: #11111b; display: flex; gap: 12px; justify-content: center; align-items: center; }
+        .canvas-container img { max-height: 100%; object-fit: contain; display: block; }
+        #original-img, #preview-img { width: calc(50% - 10px); }
         
         .upload-bar { margin-bottom: 15px; display: flex; gap: 10px; align-items: center; background: var(--panel-bg); padding: 10px 15px; border-radius: 8px; border: 1px solid var(--border-color); }
         .pipeline-step { background: rgba(255,255,255,0.05); border: 1px solid var(--border-color); padding: 8px 12px; margin-bottom: 8px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; }
@@ -164,6 +165,11 @@
             <span style="color: var(--border-color);">|</span>
             <button onclick="switchMode('image')">Image Preview Mode</button>
             <button onclick="switchMode('video')">Video Stream Mode</button>
+            <button id="toggle-original" onclick="toggleOriginal()">Show Original</button>
+        </div>
+
+        <div id="original-wrap" style="width:100%; max-width:1000px; display:flex; justify-content:center; margin-bottom:8px;">
+            <img id="original-img" src="/api/preview/original" alt="Original Image" style="display:none; max-width:320px; max-height:140px; object-fit:contain; border-radius:6px; border:1px solid var(--border-color);" />
         </div>
 
         <div class="canvas-container">
@@ -192,6 +198,7 @@
 
     <script>
         let currentMode = 'image';
+        let showOriginal = false;
 
         function toggleTree(element) {
             const subTree = element.nextElementSibling;
@@ -204,16 +211,30 @@
             }
         }
 
+        function toggleOriginal() {
+            showOriginal = !showOriginal;
+            const btn = document.getElementById('toggle-original');
+            btn.innerText = showOriginal ? 'Hide Original' : 'Show Original';
+            const original = document.getElementById('original-img');
+            if (showOriginal && currentMode === 'image') original.style.display = 'block';
+            else original.style.display = 'none';
+        }
+
         function switchMode(mode) {
             currentMode = mode;
-            const img = document.getElementById('preview-img');
+            const preview = document.getElementById('preview-img');
+            const original = document.getElementById('original-img');
             const exportPanel = document.getElementById('export-panel');
 
             if (mode === 'video') {
-                img.src = '/api/video/stream-preview';
+                // hide original in video mode
+                original.style.display = 'none';
+                preview.src = '/api/video/stream-preview';
                 exportPanel.style.display = 'flex';
             } else {
-                img.src = '/api/preview?t=' + new Date().getTime();
+                original.style.display = showOriginal ? 'block' : 'none';
+                preview.src = '/api/preview?t=' + new Date().getTime();
+                original.src = '/api/preview/original?t=' + new Date().getTime();
                 exportPanel.style.display = 'none';
             }
         }
@@ -236,6 +257,9 @@
 
             if (currentMode === 'image') {
                 document.getElementById('preview-img').src = '/api/preview?t=' + new Date().getTime();
+                document.getElementById('original-img').src = '/api/preview/original?t=' + new Date().getTime();
+                document.getElementById('original-img').style.display = showOriginal ? 'block' : 'none';
+                document.getElementById('toggle-original').innerText = showOriginal ? 'Hide Original' : 'Show Original';
             }
         }
 
