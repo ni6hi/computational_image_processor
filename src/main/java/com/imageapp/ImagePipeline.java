@@ -3,7 +3,6 @@ package com.imageapp;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 public class ImagePipeline {
 
@@ -63,68 +62,17 @@ public class ImagePipeline {
         return currentImg;
     }
 
-    // Export pipeline to a config object for JSON serialization
+    // Export pipeline to a config object for JSON serialization.
+    // Each operation reports its own op key and the exact params it was built with.
     public PipelineConfig toConfig() {
         PipelineConfig cfg = new PipelineConfig();
         for (ImageOperation op : operations) {
             if (op == null) continue;
-            String name = op.getName();
-            // Best-effort mapping from display name back to op key + params
-            // Many getName() strings contain readable params; parse common ones.
-            if (name == null) continue;
-
-            name = name.trim();
-
-            if (name.startsWith("Grayscale")) cfg.add("grayscale", Map.of());
-            else if (name.startsWith("Invert")) cfg.add("invert", Map.of());
-            else if (name.startsWith("Resize")) {
-                // Resize (WxH)
-                try {
-                    int s = name.indexOf('(');
-                    int x = name.indexOf('x', s);
-                    int end = name.indexOf(')', x);
-                    String w = name.substring(s + 1, x).trim();
-                    String h = name.substring(x + 1, end).trim();
-                    cfg.add("resize", Map.of("width", Integer.parseInt(w), "height", Integer.parseInt(h)));
-                } catch (Exception e) { cfg.add("resize", Map.of()); }
+            PipelineConfig.Entry spec = op.toSpec();
+            if (spec == null) {
+                throw new IllegalStateException("Operation '" + op.getName() + "' cannot be exported to pipeline JSON");
             }
-            else if (name.startsWith("Rotate")) {
-                try {
-                    int s = name.indexOf('(');
-                    int end = name.indexOf('\u00B0', s);
-                    String v = name.substring(s + 1, end).replace("°", "").trim();
-                    cfg.add("rotate", Map.of("angle", Double.parseDouble(v)));
-                } catch (Exception e) { cfg.add("rotate", Map.of()); }
-            }
-            else if (name.startsWith("Flip")) {
-                cfg.add("flip", Map.of("horizontal", name.contains("Horizontal") || name.contains("H")));
-            }
-            else if (name.startsWith("Crop")) {
-                try {
-                    int s = name.indexOf('(');
-                    int x = name.indexOf('x', s);
-                    int end = name.indexOf(')', x);
-                    String w = name.substring(s + 1, x).trim();
-                    String h = name.substring(x + 1, end).trim();
-                    cfg.add("crop", Map.of("width", Integer.parseInt(w), "height", Integer.parseInt(h)));
-                } catch (Exception e) { cfg.add("crop", Map.of()); }
-            }
-            else if (name.startsWith("Watermark")) cfg.add("watermark", Map.of());
-            else if (name.toLowerCase().contains("gaussian")) cfg.add("gaussian_blur", Map.of());
-            else if (name.toLowerCase().contains("median")) cfg.add("median_filter", Map.of());
-            else if (name.toLowerCase().contains("bilateral")) cfg.add("bilateral_filter", Map.of());
-            else if (name.toLowerCase().contains("global")) cfg.add("global_hist_eq", Map.of());
-            else if (name.toLowerCase().contains("clahe")) cfg.add("clahe", Map.of());
-            else if (name.toLowerCase().contains("unsharp")) cfg.add("unsharp_mask", Map.of());
-            else if (name.toLowerCase().contains("sobel")) cfg.add("sobel", Map.of());
-            else if (name.toLowerCase().contains("otsu")) cfg.add("otsu", Map.of());
-            else if (name.toLowerCase().contains("sauvola")) cfg.add("sauvola", Map.of());
-            else if (name.toLowerCase().contains("morph")) cfg.add("morphology_dilation", Map.of());
-            else if (name.toLowerCase().contains("spc")) cfg.add("spc", Map.of());
-            else if (name.toLowerCase().contains("frame difference" )|| name.toLowerCase().contains("frame diff")) cfg.add("frame_diff", Map.of());
-            else if (name.toLowerCase().contains("averag")) cfg.add("frame_avg", Map.of());
-            else if (name.toLowerCase().contains("background")) cfg.add("bg_subtraction", Map.of());
-            else cfg.add(name, Map.of());
+            cfg.add(spec.op, spec.params);
         }
         return cfg;
     }

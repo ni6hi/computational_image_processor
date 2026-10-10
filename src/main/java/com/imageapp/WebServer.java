@@ -228,8 +228,11 @@ public class WebServer {
 
         // Export pipeline as JSON
         app.get("/api/pipeline/export", ctx -> {
-            PipelineConfig cfg = pipeline.toConfig();
-            ctx.json(cfg);
+            try {
+                ctx.json(pipeline.toConfig());
+            } catch (IllegalStateException e) {
+                ctx.status(500).result("Export failed: " + e.getMessage());
+            }
         });
 
         // Import pipeline from JSON body

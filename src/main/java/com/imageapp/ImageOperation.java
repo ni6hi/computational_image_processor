@@ -15,6 +15,12 @@ public interface ImageOperation {
     BufferedImage process(BufferedImage input);
     String getName();
 
+    /** Op key and parameters used to export this operation to pipeline JSON, or null if it cannot be exported. */
+    default PipelineConfig.Entry toSpec() { return null; }
+
+    /** Converts a float parameter to a double without float noise (0.3f -> 0.3, not 0.30000001192...). */
+    static double cleanDouble(float v) { return Double.parseDouble(Float.toString(v)); }
+
     static BufferedImage copyImage(BufferedImage input) {
         if (input == null) return null;
         BufferedImage copy = new BufferedImage(
@@ -43,6 +49,7 @@ class GrayscaleOperation implements ImageOperation {
         return gray;
     }
     @Override public String getName() { return "Grayscale"; }
+    @Override public PipelineConfig.Entry toSpec() { return new PipelineConfig.Entry("grayscale", java.util.Map.of()); }
 }
 
 class ResizeOperation implements ImageOperation {
@@ -61,6 +68,7 @@ class ResizeOperation implements ImageOperation {
         return resized;
     }
     @Override public String getName() { return "Resize (" + width + "x" + height + ")"; }
+    @Override public PipelineConfig.Entry toSpec() { return new PipelineConfig.Entry("resize", java.util.Map.of("width", width, "height", height)); }
 }
 
 class RotateOperation implements ImageOperation {
@@ -85,6 +93,7 @@ class RotateOperation implements ImageOperation {
         return rotated;
     }
     @Override public String getName() { return "Rotate (" + (int) degrees + "°)"; }
+    @Override public PipelineConfig.Entry toSpec() { return new PipelineConfig.Entry("rotate", java.util.Map.of("angle", degrees)); }
 }
 
 class FlipOperation implements ImageOperation {
@@ -102,6 +111,7 @@ class FlipOperation implements ImageOperation {
         return flipped;
     }
     @Override public String getName() { return "Flip (" + (horizontal ? "Horizontal" : "Vertical") + ")"; }
+    @Override public PipelineConfig.Entry toSpec() { return new PipelineConfig.Entry("flip", java.util.Map.of("horizontal", horizontal)); }
 }
 
 class CropOperation implements ImageOperation {
@@ -122,6 +132,7 @@ class CropOperation implements ImageOperation {
         return cropped;
     }
     @Override public String getName() { return "Crop (" + width + "x" + height + ")"; }
+    @Override public PipelineConfig.Entry toSpec() { return new PipelineConfig.Entry("crop", java.util.Map.of("x", x, "y", y, "width", width, "height", height)); }
 }
 
 class InvertOperation implements ImageOperation {
@@ -142,6 +153,7 @@ class InvertOperation implements ImageOperation {
         return result;
     }
     @Override public String getName() { return "Invert Colors"; }
+    @Override public PipelineConfig.Entry toSpec() { return new PipelineConfig.Entry("invert", java.util.Map.of()); }
 }
 
 class WatermarkOperation implements ImageOperation {
@@ -163,6 +175,7 @@ class WatermarkOperation implements ImageOperation {
         return watermarked;
     }
     @Override public String getName() { return "Watermark (" + text + ")"; }
+    @Override public PipelineConfig.Entry toSpec() { return new PipelineConfig.Entry("watermark", java.util.Map.of("text", text, "opacity", ImageOperation.cleanDouble(opacity))); }
 }
 
 // ==========================================
@@ -191,6 +204,7 @@ class GaussianBlurOperation implements ImageOperation {
         return op.filter(input, null);
     }
     @Override public String getName() { return "Gaussian Blur (σ=" + sigma + ")"; }
+    @Override public PipelineConfig.Entry toSpec() { return new PipelineConfig.Entry("gaussian_blur", java.util.Map.of("sigma", ImageOperation.cleanDouble(sigma))); }
 }
 
 // 2. Median Filter
@@ -227,6 +241,7 @@ class MedianFilterOperation implements ImageOperation {
         return result;
     }
     @Override public String getName() { return "Median Filter (r=" + radius + ")"; }
+    @Override public PipelineConfig.Entry toSpec() { return new PipelineConfig.Entry("median_filter", java.util.Map.of("radius", radius)); }
 }
 
 // 3. Bilateral Edge-Preserving Filter
@@ -274,6 +289,7 @@ class BilateralFilterOperation implements ImageOperation {
         return result;
     }
     @Override public String getName() { return "Bilateral Filter"; }
+    @Override public PipelineConfig.Entry toSpec() { return new PipelineConfig.Entry("bilateral_filter", java.util.Map.of("sigmaSpace", sigmaSpatial, "sigmaColor", sigmaRange)); }
 }
 
 // 4. Global Histogram Equalization (GHE)
@@ -308,6 +324,7 @@ class GlobalHistogramEqualizationOperation implements ImageOperation {
         return result;
     }
     @Override public String getName() { return "Global Histogram Equalization (GHE)"; }
+    @Override public PipelineConfig.Entry toSpec() { return new PipelineConfig.Entry("global_hist_eq", java.util.Map.of()); }
 }
 
 // 5. Contrast Limited Adaptive Histogram Equalization (CLAHE)
@@ -389,6 +406,7 @@ class CLAHEOperation implements ImageOperation {
         return result;
     }
     @Override public String getName() { return "CLAHE"; }
+    @Override public PipelineConfig.Entry toSpec() { return new PipelineConfig.Entry("clahe", java.util.Map.of("tileSize", tileSize, "clipLimit", ImageOperation.cleanDouble(clipLimit))); }
 }
 
 // 6. Unsharp Masking (USM)
@@ -414,6 +432,8 @@ class UnsharpMaskOperation implements ImageOperation {
         return result;
     }
     @Override public String getName() { return "Unsharp Masking"; }
+    // sigma 1.5 = the fixed blur used in process()
+    @Override public PipelineConfig.Entry toSpec() { return new PipelineConfig.Entry("unsharp_mask", java.util.Map.of("amount", ImageOperation.cleanDouble(amount), "sigma", 1.5)); }
 }
 
 // 7. Sobel Gradient Operator
@@ -444,6 +464,7 @@ class SobelEdgeDetectionOperation implements ImageOperation {
         return result;
     }
     @Override public String getName() { return "Sobel Edge Operator"; }
+    @Override public PipelineConfig.Entry toSpec() { return new PipelineConfig.Entry("sobel", java.util.Map.of()); }
 }
 
 // 8. Otsu Automatic Binarization
@@ -498,6 +519,7 @@ class OtsuThresholdOperation implements ImageOperation {
         return result;
     }
     @Override public String getName() { return "Otsu Binarization"; }
+    @Override public PipelineConfig.Entry toSpec() { return new PipelineConfig.Entry("otsu", java.util.Map.of()); }
 }
 
 // 9. Sauvola Adaptive Thresholding
@@ -543,6 +565,7 @@ class SauvolaThresholdOperation implements ImageOperation {
         return result;
     }
     @Override public String getName() { return "Sauvola Binarization"; }
+    @Override public PipelineConfig.Entry toSpec() { return new PipelineConfig.Entry("sauvola", java.util.Map.of("window", windowSize, "k", k)); }
 }
 
 // 10. Morphological Erosion and Dilation
@@ -579,6 +602,11 @@ class MorphologyOperation implements ImageOperation {
         return result;
     }
     @Override public String getName() { return "Morphology (" + type.name() + ")"; }
+    // Factory ops take a window size and use radius = size / 2, so radius r maps to size 2r + 1
+    @Override public PipelineConfig.Entry toSpec() {
+        String key = type == Type.EROSION ? "morphology_erosion" : "morphology_dilation";
+        return new PipelineConfig.Entry(key, java.util.Map.of("size", 2 * radius + 1));
+    }
 }
 
 // ==========================================

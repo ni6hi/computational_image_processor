@@ -7,143 +7,140 @@ import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import io.javalin.http.Context;
 
 public class OperationFactory {
 
+    /** Create an operation from a web request: query parameters are the operation's params. */
     public static ImageOperation create(String opKey, Context ctx) {
-        if (opKey == null) return null;
-        String key = opKey.toLowerCase().trim();
-
-        return switch (key) {
-            case "grayscale" -> createGrayscale();
-            case "invert" -> createInvert();
-            case "sobel" -> createSobel();
-            case "global_hist_eq" -> createGlobalHistEq();
-            case "clahe" -> createClahe(parseInt(ctx, "tileSize", 8), parseDouble(ctx, "clipLimit", 2.0));
-            case "unsharp_mask" -> createUnsharpMask(parseDouble(ctx, "amount", 1.5), parseDouble(ctx, "sigma", 1.5));
-            case "gaussian_blur" -> createGaussianBlur(parseDouble(ctx, "sigma", 2.0));
-            case "median_filter" -> createMedianFilter(parseInt(ctx, "radius", 3));
-            case "bilateral_filter" -> createBilateralFilter(
-                    parseDouble(ctx, "sigmaColor", 75.0), parseDouble(ctx, "sigmaSpace", 75.0));
-            case "otsu" -> createOtsu();
-            case "sauvola" -> createSauvola(parseInt(ctx, "window", 15), parseDouble(ctx, "k", 0.2));
-            case "resize" -> createResize(parseInt(ctx, "width", 256), parseInt(ctx, "height", 256));
-            case "rotate" -> createRotate(parseDouble(ctx, "angle", 90.0));
-            case "flip" -> createFlip(parseBoolean(ctx, "horizontal", true));
-            case "crop" -> createCrop(
-                    parseInt(ctx, "x", 0), parseInt(ctx, "y", 0),
-                    parseInt(ctx, "width", 256), parseInt(ctx, "height", 256));
-            case "watermark" -> createWatermark(getParam(ctx, "text", "CILab"), parseFloat(ctx, "opacity", 0.5f));
-            case "morphology_dilation" -> createDilation(parseInt(ctx, "size", 3));
-            case "morphology_erosion" -> createErosion(parseInt(ctx, "size", 3));
-            case "morph_open" -> createMorphOpen(parseInt(ctx, "size", 3));
-            case "morph_close" -> createMorphClose(parseInt(ctx, "size", 3));
-            case "top_hat" -> createTopHat(parseInt(ctx, "size", 3));
-            case "box_filter" -> createBoxFilter(parseInt(ctx, "size", 3));
-            case "fft_spectrum" -> createFFTSpectrum();
-            case "retinex" -> createRetinex(parseDouble(ctx, "sigma", 15.0));
-            case "reinhard_tone" -> createReinhardTone(parseDouble(ctx, "key", 0.18));
-            case "demosaic_mhc" -> createDemosaicMHC();
-            case "wiener_deconv" -> createWienerDeconv(parseDouble(ctx, "noise", 0.01), parseDouble(ctx, "sigma", 2.0));
-            case "vignetting" -> createVignetting(parseDouble(ctx, "alpha", 0.5));
-            case "haar_wavelet" -> createHaarWavelet();
-            case "spc" -> createSpcSimulator(parseDouble(ctx, "scaling", 1000.0), parseInt(ctx, "frames", 50));
-            case "frame_diff" -> createFrameDifference(parseInt(ctx, "threshold", 30));
-            case "frame_avg" -> createFrameAveraging(parseInt(ctx, "window", 5));
-            case "bg_subtraction" -> createBackgroundSubtraction(parseDouble(ctx, "alpha", 0.05));
-            default -> null;
-        };
+        Map<String, Object> params = new LinkedHashMap<>();
+        if (ctx != null) {
+            ctx.queryParamMap().forEach((k, vals) -> {
+                // Same rules as before: first value, trimmed; blank means "use the default"
+                if (!vals.isEmpty() && vals.get(0) != null && !vals.get(0).isBlank()) params.put(k, vals.get(0).trim());
+            });
+        }
+        return createFromSpec(opKey, params);
     }
 
-        /**
-         * Create an ImageOperation from a simple op key and params map.
-         * This is a convenience for programmatic imports and the GUI.
-         */
-        public static ImageOperation createFromSpec(String opKey, java.util.Map<String, Object> params) {
+    /**
+     * Create an ImageOperation from an op key and params map (pipeline JSON, GUI, web).
+     * The returned operation remembers its key and the parameter values actually used
+     * (including defaults), so the pipeline can be exported without loss.
+     */
+    public static ImageOperation createFromSpec(String opKey, Map<String, Object> params) {
         if (opKey == null) return null;
         String key = opKey.toLowerCase().trim();
+        Params p = new Params(params);
 
-        return switch (key) {
+        ImageOperation op = switch (key) {
             case "grayscale" -> createGrayscale();
             case "invert" -> createInvert();
             case "sobel" -> createSobel();
             case "global_hist_eq" -> createGlobalHistEq();
-            case "clahe" -> createClahe(
-                parseMapInt(params, "tileSize", 8),
-                parseMapDouble(params, "clipLimit", 2.0));
-            case "unsharp_mask" -> createUnsharpMask(parseMapDouble(params, "amount", 1.5), parseMapDouble(params, "sigma", 1.5));
-            case "gaussian_blur" -> createGaussianBlur(parseMapDouble(params, "sigma", 2.0));
-            case "median_filter" -> createMedianFilter(parseMapInt(params, "radius", 3));
-            case "bilateral_filter" -> createBilateralFilter(
-                parseMapDouble(params, "sigmaColor", 75.0),
-                parseMapDouble(params, "sigmaSpace", 75.0));
+            case "clahe" -> createClahe(p.i("tileSize", 8), p.d("clipLimit", 2.0));
+            case "unsharp_mask" -> createUnsharpMask(p.d("amount", 1.5), p.d("sigma", 1.5));
+            case "gaussian_blur" -> createGaussianBlur(p.d("sigma", 2.0));
+            case "median_filter" -> createMedianFilter(p.i("radius", 3));
+            case "bilateral_filter" -> createBilateralFilter(p.d("sigmaColor", 75.0), p.d("sigmaSpace", 75.0));
             case "otsu" -> createOtsu();
-            case "sauvola" -> createSauvola(
-                parseMapInt(params, "window", 15),
-                parseMapDouble(params, "k", 0.2));
-            case "resize" -> createResize(
-                parseMapInt(params, "width", 256),
-                parseMapInt(params, "height", 256));
-            case "rotate" -> createRotate(parseMapDouble(params, "angle", 90.0));
-            case "flip" -> createFlip(parseMapBoolean(params, "horizontal", true));
-            case "crop" -> createCrop(
-                parseMapInt(params, "x", 0), parseMapInt(params, "y", 0),
-                parseMapInt(params, "width", 256), parseMapInt(params, "height", 256));
-            case "watermark" -> createWatermark(
-                parseMapString(params, "text", "CILab"),
-                (float) parseMapDouble(params, "opacity", 0.5));
-            case "morphology_dilation" -> createDilation(parseMapInt(params, "size", 3));
-            case "morphology_erosion" -> createErosion(parseMapInt(params, "size", 3));
-            case "morph_open" -> createMorphOpen(parseMapInt(params, "size", 3));
-            case "morph_close" -> createMorphClose(parseMapInt(params, "size", 3));
-            case "top_hat" -> createTopHat(parseMapInt(params, "size", 3));
-            case "box_filter" -> createBoxFilter(parseMapInt(params, "size", 3));
+            case "sauvola" -> createSauvola(p.i("window", 15), p.d("k", 0.2));
+            case "resize" -> createResize(p.i("width", 256), p.i("height", 256));
+            case "rotate" -> createRotate(p.d("angle", 90.0));
+            case "flip" -> createFlip(p.b("horizontal", true));
+            case "crop" -> createCrop(p.i("x", 0), p.i("y", 0), p.i("width", 256), p.i("height", 256));
+            case "watermark" -> createWatermark(p.s("text", "CILab"), p.f("opacity", 0.5f));
+            case "morphology_dilation" -> createDilation(p.i("size", 3));
+            case "morphology_erosion" -> createErosion(p.i("size", 3));
+            case "morph_open" -> createMorphOpen(p.i("size", 3));
+            case "morph_close" -> createMorphClose(p.i("size", 3));
+            case "top_hat" -> createTopHat(p.i("size", 3));
+            case "box_filter" -> createBoxFilter(p.i("size", 3));
             case "fft_spectrum" -> createFFTSpectrum();
-            case "retinex" -> createRetinex(parseMapDouble(params, "sigma", 15.0));
-            case "reinhard_tone" -> createReinhardTone(parseMapDouble(params, "key", 0.18));
+            case "retinex" -> createRetinex(p.d("sigma", 15.0));
+            case "reinhard_tone" -> createReinhardTone(p.d("key", 0.18));
             case "demosaic_mhc" -> createDemosaicMHC();
-            case "wiener_deconv" -> createWienerDeconv(parseMapDouble(params, "noise", 0.01), parseMapDouble(params, "sigma", 2.0));
-            case "vignetting" -> createVignetting(parseMapDouble(params, "alpha", 0.5));
+            case "wiener_deconv" -> createWienerDeconv(p.d("noise", 0.01), p.d("sigma", 2.0));
+            case "vignetting" -> createVignetting(p.d("alpha", 0.5));
             case "haar_wavelet" -> createHaarWavelet();
-            case "spc" -> createSpcSimulator(
-                parseMapDouble(params, "scaling", 1000.0),
-                parseMapInt(params, "frames", 50));
-            case "frame_diff" -> createFrameDifference(parseMapInt(params, "threshold", 30));
-            case "frame_avg" -> createFrameAveraging(parseMapInt(params, "window", 5));
-            case "bg_subtraction" -> createBackgroundSubtraction(parseMapDouble(params, "alpha", 0.05));
+            case "spc" -> createSpcSimulator(p.d("scaling", 1000.0), p.i("frames", 50));
+            case "frame_diff" -> createFrameDifference(p.i("threshold", 30));
+            case "frame_avg" -> createFrameAveraging(p.i("window", 5));
+            case "bg_subtraction" -> createBackgroundSubtraction(p.d("alpha", 0.05));
             default -> null;
         };
+        return op == null ? null : withSpec(op, new PipelineConfig.Entry(key, java.util.Collections.unmodifiableMap(p.used)));
+    }
+
+    /** Reads params with defaults and records every value actually used. */
+    private static final class Params {
+        private final Map<String, Object> src;
+        private final Map<String, Object> used = new LinkedHashMap<>();
+
+        Params(Map<String, Object> src) { this.src = src; }
+
+        private Object raw(String k) { return src == null ? null : src.get(k); }
+
+        int i(String k, int def) {
+            Object v = raw(k);
+            int r = def;
+            if (v instanceof Number n) r = n.intValue();
+            else if (v != null) { try { r = Integer.parseInt(v.toString()); } catch (Exception e) { r = def; } }
+            used.put(k, r);
+            return r;
         }
 
-        private static int parseMapInt(java.util.Map<String, Object> m, String k, int def) {
-        if (m == null || !m.containsKey(k)) return def;
-        Object v = m.get(k);
-        if (v instanceof Number) return ((Number) v).intValue();
-        try { return Integer.parseInt(v.toString()); } catch (Exception e) { return def; }
+        double d(String k, double def) {
+            Object v = raw(k);
+            double r = def;
+            if (v instanceof Number n) r = n.doubleValue();
+            else if (v != null) { try { r = Double.parseDouble(v.toString()); } catch (Exception e) { r = def; } }
+            used.put(k, r);
+            return r;
         }
 
-        private static double parseMapDouble(java.util.Map<String, Object> m, String k, double def) {
-        if (m == null || !m.containsKey(k)) return def;
-        Object v = m.get(k);
-        if (v instanceof Number) return ((Number) v).doubleValue();
-        try { return Double.parseDouble(v.toString()); } catch (Exception e) { return def; }
+        float f(String k, float def) {
+            float r = (float) d(k, def);
+            used.put(k, ImageOperation.cleanDouble(r));
+            return r;
         }
 
-        private static boolean parseMapBoolean(java.util.Map<String, Object> m, String k, boolean def) {
-        if (m == null || !m.containsKey(k)) return def;
-        Object v = m.get(k);
-        if (v instanceof Boolean) return (Boolean) v;
-        try { return Boolean.parseBoolean(v.toString()); } catch (Exception e) { return def; }
+        boolean b(String k, boolean def) {
+            Object v = raw(k);
+            boolean r = v instanceof Boolean bool ? bool : (v == null ? def : Boolean.parseBoolean(v.toString()));
+            used.put(k, r);
+            return r;
         }
 
-        private static String parseMapString(java.util.Map<String, Object> m, String k, String def) {
-        if (m == null || !m.containsKey(k)) return def;
-        Object v = m.get(k);
-        return v == null ? def : v.toString();
+        String s(String k, String def) {
+            Object v = raw(k);
+            String r = v == null ? def : v.toString();
+            used.put(k, r);
+            return r;
         }
+    }
+
+    /** Wraps a factory-built operation so it can report its spec; temporal operations stay temporal. */
+    private static ImageOperation withSpec(ImageOperation op, PipelineConfig.Entry spec) {
+        if (op instanceof TemporalVideoOperation t) {
+            return new TemporalVideoOperation() {
+                @Override public BufferedImage processTemporal(Frame f, List<Frame> history) { return t.processTemporal(f, history); }
+                @Override public BufferedImage process(BufferedImage in) { return t.process(in); }
+                @Override public void resetState() { t.resetState(); }
+                @Override public String getName() { return t.getName(); }
+                @Override public PipelineConfig.Entry toSpec() { return spec; }
+            };
+        }
+        return new ImageOperation() {
+            @Override public BufferedImage process(BufferedImage in) { return op.process(in); }
+            @Override public String getName() { return op.getName(); }
+            @Override public PipelineConfig.Entry toSpec() { return spec; }
+        };
+    }
 
     // =====================================================================
     // Shared helpers
@@ -1312,28 +1309,4 @@ public class OperationFactory {
         };
     }
 
-    // =====================================================================
-    // Param helpers
-    // =====================================================================
-
-    private static String getParam(Context ctx, String name, String def) {
-        String val = ctx == null ? null : ctx.queryParam(name);
-        return (val != null && !val.trim().isEmpty()) ? val.trim() : def;
-    }
-
-    private static int parseInt(Context ctx, String name, int def) {
-        try { return Integer.parseInt(getParam(ctx, name, String.valueOf(def))); } catch (Exception e) { return def; }
-    }
-
-    private static double parseDouble(Context ctx, String name, double def) {
-        try { return Double.parseDouble(getParam(ctx, name, String.valueOf(def))); } catch (Exception e) { return def; }
-    }
-
-    private static float parseFloat(Context ctx, String name, float def) {
-        try { return Float.parseFloat(getParam(ctx, name, String.valueOf(def))); } catch (Exception e) { return def; }
-    }
-
-    private static boolean parseBoolean(Context ctx, String name, boolean def) {
-        try { return Boolean.parseBoolean(getParam(ctx, name, String.valueOf(def))); } catch (Exception e) { return def; }
-    }
 }
