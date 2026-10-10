@@ -300,11 +300,17 @@ public class ImageProcessorGUI extends JFrame {
                     java.io.File in = chooser.getSelectedFile();
                     com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
                     PipelineConfig cfg = om.readValue(in, PipelineConfig.class);
-                    pipeline.loadFromConfig(cfg);
+                    java.util.List<String> warnings = pipeline.loadFromConfig(cfg);
                     pipelineListModel.clear();
                     for (ImageOperation op : pipeline.getOperations()) pipelineListModel.addElement(op.getName());
                     updatePreview();
-                    JOptionPane.showMessageDialog(this, "Pipeline loaded from " + in.getAbsolutePath());
+                    if (warnings.isEmpty()) {
+                        JOptionPane.showMessageDialog(this, "Pipeline loaded from " + in.getAbsolutePath());
+                    } else {
+                        JOptionPane.showMessageDialog(this, "Pipeline loaded from " + in.getAbsolutePath()
+                                + "\n\nSome steps were skipped:\n" + String.join("\n", warnings),
+                                "Pipeline loaded with warnings", JOptionPane.WARNING_MESSAGE);
+                    }
                 } catch (Exception ex) {
                     JOptionPane.showMessageDialog(this, "Failed to load pipeline: " + ex.getMessage());
                 }

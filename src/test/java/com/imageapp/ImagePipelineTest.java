@@ -97,4 +97,34 @@ public class ImagePipelineTest {
         pipeline.clear();
         assertEquals(0, pipeline.getOperations().size());
     }
+
+    @Test
+    @DisplayName("loadFromConfig loads valid steps and reports nothing when all steps are valid")
+    void testLoadFromConfigAllValid() {
+        PipelineConfig cfg = new PipelineConfig();
+        cfg.add("grayscale", java.util.Map.of());
+        cfg.add("sobel", java.util.Map.of());
+
+        java.util.List<String> warnings = pipeline.loadFromConfig(cfg);
+
+        assertTrue(warnings.isEmpty(), "No warnings expected, got: " + warnings);
+        assertEquals(2, pipeline.getOperations().size());
+    }
+
+    @Test
+    @DisplayName("loadFromConfig reports unknown and missing op keys instead of dropping them silently")
+    void testLoadFromConfigReportsSkippedSteps() {
+        PipelineConfig cfg = new PipelineConfig();
+        cfg.add("grayscale", java.util.Map.of());
+        cfg.add("no_such_op", java.util.Map.of());
+        cfg.add(null, java.util.Map.of());
+        cfg.add("invert", java.util.Map.of());
+
+        java.util.List<String> warnings = pipeline.loadFromConfig(cfg);
+
+        assertEquals(2, pipeline.getOperations().size(), "Valid steps around the bad ones must still load");
+        assertEquals(2, warnings.size());
+        assertTrue(warnings.get(0).startsWith("Step 2") && warnings.get(0).contains("no_such_op"));
+        assertTrue(warnings.get(1).startsWith("Step 3") && warnings.get(1).contains("missing"));
+    }
 }

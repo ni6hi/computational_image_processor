@@ -38,8 +38,9 @@ public class WebServer {
             if (cfgFile.exists()) {
                 com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
                 PipelineConfig cfg = om.readValue(cfgFile, PipelineConfig.class);
-                pipeline.loadFromConfig(cfg);
+                java.util.List<String> warnings = pipeline.loadFromConfig(cfg);
                 System.out.println("Loaded pipeline.json with " + pipeline.getOperations().size() + " steps.");
+                for (String w : warnings) System.err.println("pipeline.json: " + w);
             }
         } catch (Exception e) {
             System.err.println("Failed to auto-load pipeline.json: " + e.getMessage());
@@ -235,8 +236,10 @@ public class WebServer {
         app.post("/api/pipeline/import", ctx -> {
             try {
                 PipelineConfig cfg = ctx.bodyAsClass(PipelineConfig.class);
-                pipeline.loadFromConfig(cfg);
-                ctx.result("Pipeline imported. Steps: " + pipeline.getOperations().size());
+                java.util.List<String> warnings = pipeline.loadFromConfig(cfg);
+                String msg = "Pipeline imported. Steps: " + pipeline.getOperations().size();
+                if (!warnings.isEmpty()) msg += "\nSkipped:\n" + String.join("\n", warnings);
+                ctx.result(msg);
             } catch (Exception e) {
                 ctx.status(400).result("Invalid pipeline JSON: " + e.getMessage());
             }

@@ -129,15 +129,27 @@ public class ImagePipeline {
         return cfg;
     }
 
-    // Load pipeline from a deserialized config (best-effort mapping)
-    public void loadFromConfig(PipelineConfig cfg) {
+    // Load pipeline from a deserialized config (best-effort mapping).
+    // Valid steps are loaded; each skipped step is reported in the returned list (empty if all loaded).
+    public List<String> loadFromConfig(PipelineConfig cfg) {
         clear();
-        if (cfg == null || cfg.pipeline == null) return;
-        for (PipelineConfig.Entry e : cfg.pipeline) {
+        List<String> warnings = new ArrayList<>();
+        if (cfg == null || cfg.pipeline == null) return warnings;
+        for (int i = 0; i < cfg.pipeline.size(); i++) {
+            PipelineConfig.Entry e = cfg.pipeline.get(i);
+            String step = "Step " + (i + 1);
+            if (e == null || e.op == null || e.op.isBlank()) {
+                warnings.add(step + ": missing \"op\" key, skipped");
+                continue;
+            }
             try {
                 ImageOperation op = OperationFactory.createFromSpec(e.op, e.params);
                 if (op != null) addOperation(op);
-            } catch (Exception ignored) {}
+                else warnings.add(step + ": unknown operation '" + e.op + "', skipped");
+            } catch (Exception ex) {
+                warnings.add(step + ": could not create '" + e.op + "' (" + ex.getMessage() + "), skipped");
+            }
         }
+        return warnings;
     }
 }

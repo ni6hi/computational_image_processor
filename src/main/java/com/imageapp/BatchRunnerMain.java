@@ -33,7 +33,13 @@ public class BatchRunnerMain {
         PipelineConfig cfg = mapper.readValue(cfgFile, PipelineConfig.class);
 
         ImagePipeline pipeline = new ImagePipeline();
-        pipeline.loadFromConfig(cfg);
+        java.util.List<String> warnings = pipeline.loadFromConfig(cfg);
+        if (!warnings.isEmpty()) {
+            // A partially loaded pipeline would silently write wrong output for every file, so refuse to run
+            System.err.println("Pipeline JSON has invalid steps:");
+            for (String w : warnings) System.err.println(" - " + w);
+            System.exit(5);
+        }
 
         System.out.println("Starting batch processing:");
         System.out.println(" - pipeline: " + cfgFile.getAbsolutePath());
