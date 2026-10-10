@@ -254,18 +254,6 @@ public class WebServer {
             ImageIO.write(result, "png", baos);
             ctx.contentType("image/png").result(baos.toByteArray());
         });
-
-        // Original image endpoint for side-by-side comparison
-        app.get("/api/preview/original", ctx -> {
-            ctx.header("Cache-Control", "no-cache, no-store, must-revalidate");
-            if (currentSourceImage == null) {
-                ctx.status(400).result("No active image loaded.");
-                return;
-            }
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            ImageIO.write(currentSourceImage, "png", baos);
-            ctx.contentType("image/png").result(baos.toByteArray());
-        });
     }
 
     private static ImageOperation createOperation(String opKey, Context ctx) {

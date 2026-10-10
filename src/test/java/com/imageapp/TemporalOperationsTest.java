@@ -81,19 +81,34 @@ class TemporalOperationsTest {
     }
 
     @Test
-    @DisplayName("Background Subtraction initializes on first frame and resets state properly")
+    @DisplayName("Background Subtraction outputs an empty mask on first frame and resets state properly")
     void testBackgroundSubtractionResetState() {
         TemporalVideoOperation bgSub = (TemporalVideoOperation) backgroundSubtractionOp;
 
-        Frame frame1 = createSolidFrame(Color.RED, 0);
-        BufferedImage res1 = bgSub.processTemporal(frame1, new ArrayList<>());
-        
-        assertEquals(Color.RED.getRGB(), res1.getRGB(0, 0));
+        // First frame only initializes the background model, so there is no foreground yet
+        BufferedImage res1 = bgSub.processTemporal(createSolidFrame(Color.RED, 0), new ArrayList<>());
+        assertEquals(Color.BLACK.getRGB(), res1.getRGB(0, 0), "First frame must produce an empty (black) mask");
 
         bgSub.resetState();
 
-        Frame frame2 = createSolidFrame(Color.BLUE, 1);
-        BufferedImage res2 = bgSub.processTemporal(frame2, new ArrayList<>());
-        assertEquals(Color.BLUE.getRGB(), res2.getRGB(0, 0), "After reset, first frame must re-initialize background");
+        // After reset, a blue frame must re-initialize the model instead of being compared against red
+        BufferedImage res2 = bgSub.processTemporal(createSolidFrame(Color.BLUE, 1), new ArrayList<>());
+        assertEquals(Color.BLACK.getRGB(), res2.getRGB(0, 0), "After reset, first frame must re-initialize background");
+
+        // The model now holds blue, so an identical blue frame shows no foreground
+        BufferedImage res3 = bgSub.processTemporal(createSolidFrame(Color.BLUE, 2), new ArrayList<>());
+        assertEquals(Color.BLACK.getRGB(), res3.getRGB(0, 0), "Unchanged scene must show no foreground");
+    }
+
+    @Test
+    @DisplayName("Background Subtraction without reset reports the change against the old background")
+    void testBackgroundSubtractionDetectsChangeWithoutReset() {
+        TemporalVideoOperation bgSub = (TemporalVideoOperation) backgroundSubtractionOp;
+
+        bgSub.processTemporal(createSolidFrame(Color.RED, 0), new ArrayList<>());
+        BufferedImage res = bgSub.processTemporal(createSolidFrame(Color.BLUE, 1), new ArrayList<>());
+
+        // Red (255,0,0) vs blue (0,0,255): max channel difference is 255 -> white foreground
+        assertEquals(Color.WHITE.getRGB(), res.getRGB(0, 0), "Changed scene must show full foreground");
     }
 }
