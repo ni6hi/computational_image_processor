@@ -15,13 +15,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 class PipelineExportTest {
 
-    private static final List<String> ALL_KEYS = List.of(
-            "grayscale", "invert", "sobel", "global_hist_eq", "clahe", "unsharp_mask", "gaussian_blur",
-            "median_filter", "bilateral_filter", "otsu", "sauvola", "resize", "rotate", "flip", "crop",
-            "watermark", "morphology_dilation", "morphology_erosion", "morph_open", "morph_close", "top_hat",
-            "box_filter", "fft_spectrum", "retinex", "reinhard_tone", "demosaic_mhc", "wiener_deconv",
-            "vignetting", "haar_wavelet", "spc", "frame_diff", "frame_avg", "bg_subtraction");
-
     private final ObjectMapper mapper = new ObjectMapper();
 
     /** Export to JSON text and import it into a fresh pipeline, failing if any step is skipped. */
@@ -41,7 +34,7 @@ class PipelineExportTest {
     @DisplayName("Every factory operation survives export -> JSON -> import with identical key and params")
     void allFactoryOperationsRoundTrip() throws Exception {
         ImagePipeline source = new ImagePipeline();
-        for (String key : ALL_KEYS) {
+        for (String key : OperationKeys.ALL) {
             ImageOperation op = OperationFactory.createFromSpec(key, Map.of());
             assertNotNull(op, "Factory returned null for " + key);
             source.addOperation(op);
@@ -50,10 +43,10 @@ class PipelineExportTest {
         ImagePipeline loaded = roundTrip(source);
 
         PipelineConfig before = source.toConfig(), after = loaded.toConfig();
-        assertEquals(ALL_KEYS.size(), after.pipeline.size());
-        for (int i = 0; i < ALL_KEYS.size(); i++) {
-            assertEquals(ALL_KEYS.get(i), after.pipeline.get(i).op);
-            assertEquals(before.pipeline.get(i).params, after.pipeline.get(i).params, "Params changed for " + ALL_KEYS.get(i));
+        assertEquals(OperationKeys.ALL.size(), after.pipeline.size());
+        for (int i = 0; i < OperationKeys.ALL.size(); i++) {
+            assertEquals(OperationKeys.ALL.get(i), after.pipeline.get(i).op);
+            assertEquals(before.pipeline.get(i).params, after.pipeline.get(i).params, "Params changed for " + OperationKeys.ALL.get(i));
         }
     }
 
@@ -73,28 +66,24 @@ class PipelineExportTest {
     }
 
     @Test
-    @DisplayName("GUI-built operations export to the equivalent factory key and params")
-    void guiOperationsExportEquivalentSpec() throws Exception {
+    @DisplayName("Params as the GUI sends them (ints from sliders, divided values) export cleanly")
+    void guiStyleParamsExportCleanly() throws Exception {
         ImagePipeline source = new ImagePipeline()
-                .addOperation(new GaussianBlurOperation(3.5f))
-                .addOperation(new MorphologyOperation(MorphologyOperation.Type.EROSION, 2))
-                .addOperation(new BilateralFilterOperation(3, 50))
-                .addOperation(new WatermarkOperation("Lab", 0.3f))
-                .addOperation(new UnsharpMaskOperation(2.0f))
-                .addOperation(new FlipOperation(false));
+                .addOperation(OperationFactory.createFromSpec("rotate", Map.of("angle", 90)))                // int slider value
+                .addOperation(OperationFactory.createFromSpec("morphology_erosion", Map.of("size", 2 * 2 + 1))) // radius 2 in the GUI
+                .addOperation(OperationFactory.createFromSpec("bilateral_filter", Map.of("sigmaSpace", 3, "sigmaColor", 50)))
+                .addOperation(OperationFactory.createFromSpec("watermark", Map.of("text", "Lab", "opacity", 30 / 100.0)))
+                .addOperation(OperationFactory.createFromSpec("unsharp_mask", Map.of("amount", 20 / 10.0)));
 
         ImagePipeline loaded = roundTrip(source);
 
-        assertEquals("gaussian_blur", loaded.toConfig().pipeline.get(0).op);
-        assertEquals(Map.of("sigma", 3.5), exportedParams(loaded, 0));
-        // radius 2 -> 5x5 window
-        assertEquals("morphology_erosion", loaded.toConfig().pipeline.get(1).op);
+        assertEquals(Map.of("angle", 90.0), exportedParams(loaded, 0));
         assertEquals(Map.of("size", 5), exportedParams(loaded, 1));
-        assertEquals(Map.of("sigmaSpace", 3.0, "sigmaColor", 50.0), exportedParams(loaded, 2));
-        // 0.3f must export as 0.3, not 0.30000001192092896
+        assertEquals(Map.of("sigmaColor", 50.0, "sigmaSpace", 3.0), exportedParams(loaded, 2));
+        // opacity is a float internally; it must export as 0.3, not 0.30000001192092896
         assertEquals(Map.of("text", "Lab", "opacity", 0.3), exportedParams(loaded, 3));
+        // sigma was not given, so the default actually used is exported
         assertEquals(Map.of("amount", 2.0, "sigma", 1.5), exportedParams(loaded, 4));
-        assertEquals(Map.of("horizontal", false), exportedParams(loaded, 5));
     }
 
     @Test

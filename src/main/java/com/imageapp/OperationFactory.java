@@ -105,7 +105,7 @@ public class OperationFactory {
 
         float f(String k, float def) {
             float r = (float) d(k, def);
-            used.put(k, ImageOperation.cleanDouble(r));
+            used.put(k, Double.parseDouble(Float.toString(r))); // 0.3f -> 0.3, not 0.30000001192...
             return r;
         }
 

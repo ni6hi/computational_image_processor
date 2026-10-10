@@ -8,6 +8,7 @@ import java.awt.GridLayout;
 import java.awt.Image;
 import java.awt.image.BufferedImage;
 import java.io.File;
+import java.util.Map;
 
 import javax.imageio.ImageIO;
 import javax.swing.BorderFactory;
@@ -29,6 +30,8 @@ import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 
 public class ImageProcessorGUI extends JFrame {
+
+    private enum MorphType { EROSION, DILATION }
     private final ImagePipeline pipeline = new ImagePipeline();
     private BufferedImage currentOriginalImage;
     private BufferedImage currentPreviewImage;
@@ -99,17 +102,17 @@ public class ImageProcessorGUI extends JFrame {
         addOpsPanel.add(btnWatermark);
 
         // --- Action Listeners with Hyperparameter Sliders ---
-        btnGrayscale.addActionListener(e -> addOperation(new GrayscaleOperation()));
-        btnFlip.addActionListener(e -> addOperation(new FlipOperation(true)));
-        btnInvert.addActionListener(e -> addOperation(new InvertOperation()));
-        btnGHE.addActionListener(e -> addOperation(new GlobalHistogramEqualizationOperation()));
-        btnSobel.addActionListener(e -> addOperation(new SobelEdgeDetectionOperation()));
-        btnOtsu.addActionListener(e -> addOperation(new OtsuThresholdOperation()));
+        btnGrayscale.addActionListener(e -> addOp("grayscale", Map.of()));
+        btnFlip.addActionListener(e -> addOp("flip", Map.of("horizontal", true)));
+        btnInvert.addActionListener(e -> addOp("invert", Map.of()));
+        btnGHE.addActionListener(e -> addOp("global_hist_eq", Map.of()));
+        btnSobel.addActionListener(e -> addOp("sobel", Map.of()));
+        btnOtsu.addActionListener(e -> addOp("otsu", Map.of()));
 
         btnRotate.addActionListener(e -> {
             JSlider slider = createSlider(0, 360, 90, 90, 180);
             if (showSliderDialog("Rotate Image", "Angle (Degrees):", slider)) {
-                addOperation(new RotateOperation(slider.getValue()));
+                addOp("rotate", Map.of("angle", slider.getValue()));
             }
         });
 
@@ -117,23 +120,23 @@ public class ImageProcessorGUI extends JFrame {
             if (currentOriginalImage != null) {
                 int w = currentOriginalImage.getWidth();
                 int h = currentOriginalImage.getHeight();
-                addOperation(new CropOperation(w / 4, h / 4, w / 2, h / 2));
+                addOp("crop", Map.of("x", w / 4, "y", h / 4, "width", w / 2, "height", h / 2));
             } else {
-                addOperation(new CropOperation(50, 50, 200, 200));
+                addOp("crop", Map.of("x", 50, "y", 50, "width", 200, "height", 200));
             }
         });
 
         btnGaussian.addActionListener(e -> {
             JSlider slider = createSlider(1, 100, 20, 20, 50); // Represents 0.1 to 10.0
             if (showSliderDialog("Gaussian Blur", "Sigma (σ):", slider, 10.0f)) {
-                addOperation(new GaussianBlurOperation(slider.getValue() / 10.0f));
+                addOp("gaussian_blur", Map.of("sigma", slider.getValue() / 10.0));
             }
         });
 
         btnMedian.addActionListener(e -> {
             JSlider slider = createSlider(1, 10, 1, 1, 2);
             if (showSliderDialog("Median Filter", "Window Radius (px):", slider)) {
-                addOperation(new MedianFilterOperation(slider.getValue()));
+                addOp("median_filter", Map.of("radius", slider.getValue()));
             }
         });
 
@@ -151,7 +154,7 @@ public class ImageProcessorGUI extends JFrame {
             panel.add(lbl2); panel.add(rangeSlider);
 
             if (JOptionPane.showConfirmDialog(this, panel, "Bilateral Filter Parameters", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {
-                addOperation(new BilateralFilterOperation(spatialSlider.getValue(), rangeSlider.getValue()));
+                addOp("bilateral_filter", Map.of("sigmaSpace", spatialSlider.getValue(), "sigmaColor", rangeSlider.getValue()));
             }
         });
 
@@ -169,14 +172,14 @@ public class ImageProcessorGUI extends JFrame {
             panel.add(lbl2); panel.add(clipSlider);
 
             if (JOptionPane.showConfirmDialog(this, panel, "CLAHE Parameters", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {
-                addOperation(new CLAHEOperation(tileSlider.getValue(), clipSlider.getValue() / 10.0f));
+                addOp("clahe", Map.of("tileSize", tileSlider.getValue(), "clipLimit", clipSlider.getValue() / 10.0));
             }
         });
 
         btnUSM.addActionListener(e -> {
             JSlider slider = createSlider(1, 50, 10, 10, 20); // 0.1 to 5.0
             if (showSliderDialog("Unsharp Masking", "Sharpening Amount:", slider, 10.0f)) {
-                addOperation(new UnsharpMaskOperation(slider.getValue() / 10.0f));
+                addOp("unsharp_mask", Map.of("amount", slider.getValue() / 10.0));
             }
         });
 
@@ -194,12 +197,12 @@ public class ImageProcessorGUI extends JFrame {
             panel.add(lbl2); panel.add(kSlider);
 
             if (JOptionPane.showConfirmDialog(this, panel, "Sauvola Binarization Parameters", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {
-                addOperation(new SauvolaThresholdOperation(windowSlider.getValue(), kSlider.getValue() / 100.0f));
+                addOp("sauvola", Map.of("window", windowSlider.getValue(), "k", kSlider.getValue() / 100.0));
             }
         });
 
         btnMorphology.addActionListener(e -> {
-            JComboBox<MorphologyOperation.Type> typeCombo = new JComboBox<>(MorphologyOperation.Type.values());
+            JComboBox<MorphType> typeCombo = new JComboBox<>(MorphType.values());
             JSlider radiusSlider = createSlider(1, 10, 1, 1, 2);
             JPanel panel = new JPanel(new GridLayout(3, 1));
             JLabel lbl = new JLabel("Radius (px): " + radiusSlider.getValue());
@@ -212,7 +215,9 @@ public class ImageProcessorGUI extends JFrame {
             panel.add(radiusSlider);
 
             if (JOptionPane.showConfirmDialog(this, panel, "Morphology Parameters", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {
-                addOperation(new MorphologyOperation((MorphologyOperation.Type) typeCombo.getSelectedItem(), radiusSlider.getValue()));
+                // Factory ops take a window size and use radius = size / 2, so radius r maps to size 2r + 1
+                String key = typeCombo.getSelectedItem() == MorphType.EROSION ? "morphology_erosion" : "morphology_dilation";
+                addOp(key, Map.of("size", 2 * radiusSlider.getValue() + 1));
             }
         });
 
@@ -231,7 +236,7 @@ public class ImageProcessorGUI extends JFrame {
 
             if (JOptionPane.showConfirmDialog(this, panel, "Watermark Parameters", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {
                 if (!textInput.getText().isBlank()) {
-                    addOperation(new WatermarkOperation(textInput.getText(), opacitySlider.getValue() / 100.0f));
+                    addOp("watermark", Map.of("text", textInput.getText(), "opacity", opacitySlider.getValue() / 100.0));
                 }
             }
         });
@@ -367,6 +372,11 @@ public class ImageProcessorGUI extends JFrame {
 
         int result = JOptionPane.showConfirmDialog(this, panel, title, JOptionPane.OK_CANCEL_OPTION);
         return result == JOptionPane.OK_OPTION;
+    }
+
+    // All GUI operations come from OperationFactory, the same implementations the web UI and batch runner use
+    private void addOp(String key, Map<String, Object> params) {
+        addOperation(OperationFactory.createFromSpec(key, params));
     }
 
     private void addOperation(ImageOperation op) {

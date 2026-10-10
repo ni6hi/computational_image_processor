@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -28,13 +29,17 @@ public class ImagePipelineTest {
         pipeline = new ImagePipeline();
     }
 
+    private static ImageOperation op(String key, Map<String, Object> params) {
+        return OperationFactory.createFromSpec(key, params);
+    }
+
     @Test
     @DisplayName("Verify basic operations sequence execution")
     void testBasicOperationsSequence() {
-        pipeline.addOperation(new GrayscaleOperation());
-        pipeline.addOperation(new ResizeOperation(64, 64));
-        pipeline.addOperation(new FlipOperation(true));
-        pipeline.addOperation(new InvertOperation());
+        pipeline.addOperation(op("grayscale", Map.of()));
+        pipeline.addOperation(op("resize", Map.of("width", 64, "height", 64)));
+        pipeline.addOperation(op("flip", Map.of("horizontal", true)));
+        pipeline.addOperation(op("invert", Map.of()));
 
         BufferedImage result = pipeline.execute(testImage);
 
@@ -46,10 +51,10 @@ public class ImagePipelineTest {
     @Test
     @DisplayName("Verify scientific filtering and thresholding pipeline")
     void testScientificPipeline() {
-        pipeline.addOperation(new GaussianBlurOperation(1.5f));
-        pipeline.addOperation(new BilateralFilterOperation(50.0, 50.0));
-        pipeline.addOperation(new SobelEdgeDetectionOperation());
-        pipeline.addOperation(new OtsuThresholdOperation());
+        pipeline.addOperation(op("gaussian_blur", Map.of("sigma", 1.5)));
+        pipeline.addOperation(op("bilateral_filter", Map.of("sigmaSpace", 50.0, "sigmaColor", 50.0)));
+        pipeline.addOperation(op("sobel", Map.of()));
+        pipeline.addOperation(op("otsu", Map.of()));
 
         BufferedImage result = pipeline.execute(testImage);
 
@@ -61,8 +66,8 @@ public class ImagePipelineTest {
     @Test
     @DisplayName("Verify morphological open and close operations")
     void testMorphologicalOpenCloseOperations() {
-        pipeline.addOperation(new MorphologicalOpenCloseOperation(MorphologicalOpenCloseOperation.Mode.OPENING, 3));
-        pipeline.addOperation(new MorphologicalOpenCloseOperation(MorphologicalOpenCloseOperation.Mode.CLOSING, 3));
+        pipeline.addOperation(op("morph_open", Map.of("size", 7)));
+        pipeline.addOperation(op("morph_close", Map.of("size", 7)));
 
         BufferedImage result = pipeline.execute(testImage);
 
@@ -74,9 +79,9 @@ public class ImagePipelineTest {
     @Test
     @DisplayName("Verify advanced frequency and transform operations")
     void testAdvancedPipeline() {
-        pipeline.addOperation(new BoxFilterOperation(3));
-        pipeline.addOperation(new WienerDeconvolutionOperation(0.01));
-        pipeline.addOperation(new HaarWaveletTransformOperation());
+        pipeline.addOperation(op("box_filter", Map.of("size", 7)));
+        pipeline.addOperation(op("wiener_deconv", Map.of("noise", 0.01)));
+        pipeline.addOperation(op("haar_wavelet", Map.of()));
 
         BufferedImage result = pipeline.execute(testImage);
 
@@ -90,8 +95,8 @@ public class ImagePipelineTest {
     void testPipelineManagement() {
         assertEquals(0, pipeline.getOperations().size());
 
-        pipeline.addOperation(new GrayscaleOperation());
-        pipeline.addOperation(new GlobalHistogramEqualizationOperation());
+        pipeline.addOperation(op("grayscale", Map.of()));
+        pipeline.addOperation(op("global_hist_eq", Map.of()));
         assertEquals(2, pipeline.getOperations().size());
 
         pipeline.clear();
